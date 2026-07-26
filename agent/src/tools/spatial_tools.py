@@ -25,8 +25,8 @@ class BufferAnalysisInput(BaseModel):
 
 
 class DistanceAnalysisInput(BaseModel):
-    source: dict = Field(description="源 GeoJSON 几何对象")
-    target: dict = Field(description="目标 GeoJSON 几何对象")
+    source: str = Field(description="源地名（如'国贸'）或 GeoJSON 字符串")
+    target: str = Field(description="目标地名（如'朝阳公园'）或 GeoJSON 字符串")
 
 
 class SpatialQueryInput(BaseModel):
@@ -76,8 +76,59 @@ async def _buffer_analysis(geometry: dict, distance: float) -> dict:
     return await _post("buffer", {"geometry": geometry, "distance": distance})
 
 
-async def _distance_analysis(source: dict, target: dict) -> dict:
-    return await _post("distance", {"source": source, "target": target})
+async def _geocode(name: str) -> dict | None:
+    """地名→坐标：从 POI 表模糊搜索（取最多 50 条）"""
+    try:
+        result = await _post("query", {"table": "poi", "limit": 50})
+        features = result.get("features", [])
+        # 精确匹配优先
+        for f in features:
+            props = f.get("properties", {})
+            if props.get("name") and props["name"] == name:
+                return {"type": "Point", "coordinates": f["geometry"]["coordinates"]}
+        # 模糊匹配
+        for f in features:
+            props = f.get("properties", {})
+            if props.get("name") and name in props["name"]:
+                return {"type": "Point", "coordinates": f["geometry"]["coordinates"]}
+        return None
+    except Exception:
+        return None
+
+
+async def _distance_analysis(source: str, target: str) -> dict:
+    # 尝试解析为 dict (已经是 GeoJSON)
+    src_geom = None
+    tgt_geom = None
+    try:
+        import json as _json
+        parsed = _json.loads(source)
+        if isinstance(parsed, dict) and "type" in parsed:
+            src_geom = parsed
+    except Exception:
+        pass
+    try:
+        parsed = _json.loads(target)
+        if isinstance(parsed, dict) and "type" in parsed:
+            tgt_geom = parsed
+    except Exception:
+        pass
+
+    # 地名 → 坐标
+    if not src_geom:
+        src_geom = await _geocode(source)
+    if not tgt_geom:
+        tgt_geom = await _geocode(target)
+
+    if not src_geom or not tgt_geom:
+        # 缺坐标时返回提示，让 LLM 用自身知识提供坐标
+        return {
+            "error": "geocode_failed",
+            "message": f"无法从数据库找到 '{source}' 或 '{target}' 的坐标。请直接提供坐标，例如 source='{{\"type\":\"Point\",\"coordinates\":[116.4,39.9]}}'",
+            "hint": "北京常见地标坐标: 天安门=[116.397,39.909], 国贸=[116.458,39.908], 朝阳公园=[116.478,39.945], 望京=[116.480,39.998], 三里屯=[116.454,39.932]",
+        }
+
+    return await _post("distance", {"source": src_geom, "target": tgt_geom})
 
 
 async def _spatial_query(table: str, bbox=None, category=None) -> dict:

@@ -17,7 +17,7 @@ INTENT_SYSTEM_PROMPT = """你是一个空间分析意图解析器。根据用户
 ## 输出格式 (严格 JSON，不要包含 markdown 代码块)
 
 {
-  "task_type": "buffer_analysis|distance_analysis|site_selection|suitability_evaluation",
+  "task_type": "unsupported|buffer_analysis|distance_analysis|site_selection|suitability_evaluation|spatial_query",
   "location": "分析区域描述",
   "industry": "行业类型 (选址任务时填写，否则为 null)",
   "criteria": ["分析指标列表"],
@@ -26,16 +26,18 @@ INTENT_SYSTEM_PROMPT = """你是一个空间分析意图解析器。根据用户
 
 ## 任务类型
 
-- buffer_analysis: 缓冲区分析（计算某点/区域周边范围，如"500米缓冲区"）
-- distance_analysis: 距离计算（两点/两区域距离）
-- site_selection: 选址分析（在哪开店/建站，需要综合考虑多因素）
-- suitability_evaluation: 适宜性评价（某区域是否适合某用途）
+- unsupported: 非空间分析问题（如"GDP最高是哪个区"、"今天天气怎么样"等统计/常识/天气问题）。本平台只能做空间分析（选址、缓冲区、距离、密度、路径规划），不能回答统计数据查询。
+- buffer_analysis: 缓冲区分析
+- distance_analysis: 距离计算
+- site_selection: 选址分析
+- suitability_evaluation: 适宜性评价
+- spatial_query: 查询空间数据库（POI/建筑/道路）
 
-## 要求
+## 重要判断规则
 
-- 只输出 JSON，不要任何解释文字
-- criteria 字段列出相关的分析指标 (如 population_density, transport_accessibility, competitor_density)
-- geometry_needed 通常为 true"""
+- 如果用户问的是统计数据（GDP、人口数量排名、经济指标等）、非空间常识问题、或本平台无法回答的问题，task_type 必须设为 "unsupported"
+- 只有当用户明确涉及地理空间计算时（选址、距离、可达性、密度、缓冲区），才标记为空间分析任务
+- 只输出 JSON，不要任何解释文字"""
 
 
 class IntentParser:

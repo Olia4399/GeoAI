@@ -18,6 +18,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .api.routes import router as agent_router
+from .api.history_routes import router as history_router
 
 
 def get_spatial_service_url() -> str:
@@ -56,3 +57,4 @@ app.add_middleware(
 )
 
 app.include_router(agent_router, prefix="/api/agent")
+app.include_router(history_router, prefix="/api/agent")

@@ -34,8 +34,9 @@ class SpatialPlanner:
 - 先用 spatial_query 了解区域有什么，再做针对性分析
 - 选址类问题走: spatial_query → density_analysis → suitability_analysis，最多 3-4 步
 - 简单问题 1 步搞定，不要过度分析
-- 没有坐标时用默认值: 北京国贸=[116.458,39.908]
-- spatial_query 的 category 参数可直接过滤，如 category="cafe" 只查咖啡店"""
+- 地名无法查找坐标时，直接用你的知识估算坐标 (北京地名坐标你大多知道)
+- distance_analysis 的 source/target 参数可以是地名或坐标字符串
+- spatial_query 的 category 参数可直接过滤"""
 
     def __init__(self):
         self.llm = ChatOpenAI(

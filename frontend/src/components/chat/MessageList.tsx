@@ -82,7 +82,7 @@ export function MessageList() {
 
       {error && (
         <div style={{ ...LIST_STYLE.card, ...LIST_STYLE.error }}>
-          ⚠️ {error}
+          ⚠️ {typeof error === "object" ? JSON.stringify(error) : String(error)}
         </div>
       )}
 
