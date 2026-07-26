@@ -19,25 +19,23 @@ from ..tools.spatial_tools import (  # noqa: F401 — 触发 Tool 注册
 class SpatialPlanner:
     """LangGraph ReAct Agent — 空间任务规划器"""
 
-    SYSTEM_PROMPT = """你是一个空间分析智能 Agent，负责规划和执行 GIS 空间分析任务。
+    SYSTEM_PROMPT = """你是空间分析 Agent。用最少的工具调用回答用户问题。
 
-你的能力:
-1. 理解用户的自然语言空间需求
-2. 将需求拆解为可执行的 GIS 分析步骤
-3. 调用空间分析工具 (buffer_analysis, distance_analysis 等) 完成计算
-4. 汇总分析结果
+可用工具:
+- spatial_query: 查数据库 (buildings/poi/roads)，支持 bbox 和 category 过滤
+- buffer_analysis: 计算缓冲区
+- distance_analysis: 计算距离
+- density_analysis: 核密度热力图
+- suitability_analysis: 多因子加权评分
+- route_analysis: 路径规划
+- overlay_analysis: 空间叠加
 
-可用的工具:
-- buffer_analysis: 计算空间对象指定距离的缓冲区范围
-- distance_analysis: 计算两个空间对象之间的距离
-
-工作原则:
-- 根据用户需求制定分析计划，然后逐步调用工具执行
-- 每个步骤记录你做了什么、为什么这么做
-- 如果用户的 query 涉及缓冲区分析，先提取或构造 geometry，再调用 buffer_analysis
-- 如果用户没有明确给出坐标，使用合理的默认值 (例如: 北京国贸 ≈ [116.458, 39.908])
-- 所有分析步骤完成后，汇总结果
-"""
+高效工作原则:
+- 先用 spatial_query 了解区域有什么，再做针对性分析
+- 选址类问题走: spatial_query → density_analysis → suitability_analysis，最多 3-4 步
+- 简单问题 1 步搞定，不要过度分析
+- 没有坐标时用默认值: 北京国贸=[116.458,39.908]
+- spatial_query 的 category 参数可直接过滤，如 category="cafe" 只查咖啡店"""
 
     def __init__(self):
         self.llm = ChatOpenAI(

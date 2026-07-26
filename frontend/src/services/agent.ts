@@ -4,7 +4,7 @@ import type { AgentResponse } from "../types";
 /** Axios 实例 — 对接 Spatial Agent (代理到 :8001) */
 const agentClient = axios.create({
   baseURL: "/api/agent",
-  timeout: 120000, // Agent 可能较长 (LLM + 多步 Tool)
+  timeout: 300000, // Agent 多步推理最长 5 分钟
   headers: { "Content-Type": "application/json" },
 });
 

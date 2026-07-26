@@ -1,4 +1,5 @@
 import { useAppStore } from "../../store";
+import ReactMarkdown from "react-markdown";
 
 const LIST_STYLE: Record<string, React.CSSProperties> = {
   container: {
@@ -33,6 +34,10 @@ const LIST_STYLE: Record<string, React.CSSProperties> = {
   report: {
     whiteSpace: "pre-wrap" as const,
     color: "#333",
+    "& p": { margin: "4px 0" },
+    "& h2": { fontSize: 15, fontWeight: 600, marginTop: 12 },
+    "& table": { width: "100%", fontSize: 12, borderCollapse: "collapse" as const },
+    "& th, & td": { border: "1px solid #ddd", padding: "4px 8px", textAlign: "left" as const },
   },
   error: {
     color: "#d32f2f",
@@ -127,7 +132,9 @@ export function MessageList() {
           {agentResponse.report && (
             <div style={LIST_STYLE.card}>
               <div style={{ fontWeight: 600, marginBottom: 6 }}>📝 分析报告</div>
-              <div style={LIST_STYLE.report}>{agentResponse.report}</div>
+              <div style={LIST_STYLE.report}>
+                <ReactMarkdown>{agentResponse.report}</ReactMarkdown>
+              </div>
             </div>
           )}
         </>

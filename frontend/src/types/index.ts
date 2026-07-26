@@ -42,3 +42,6 @@ export interface AgentResponse {
 
 // 地图模式
 export type MapMode = "2d" | "3d";
+
+// 地图绘制
+export type DrawMode = "rectangle" | null;

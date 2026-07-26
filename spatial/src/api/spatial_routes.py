@@ -1,4 +1,4 @@
-"""空间分析 API 路由"""
+"""空间分析 API 路由 — 6 个核心 Tool + query"""
 
 from fastapi import APIRouter, HTTPException
 
@@ -7,20 +7,25 @@ from ..models.schemas import (
     BufferResponse,
     DistanceRequest,
     DistanceResponse,
-    SpatialError,
+    QueryRequest,
+    QueryResponse,
+    RouteRequest,
+    OverlayRequest,
+    DensityRequest,
+    SuitabilityRequest,
 )
 from ..services.buffer import compute_buffer
 from ..services.distance import compute_distance
+from ..services.query import spatial_query
+from ..services.route import compute_route
+from ..services.overlay import compute_overlay
+from ..services.density import compute_density
+from ..services.suitability import compute_suitability
 
 router = APIRouter()
 
 
-@router.post(
-    "/buffer",
-    response_model=BufferResponse,
-    summary="缓冲区分析",
-    description="计算空间对象指定距离的缓冲区范围，返回 GeoJSON FeatureCollection",
-)
+@router.post("/buffer", response_model=BufferResponse, summary="缓冲区分析")
 def buffer_analysis(req: BufferRequest):
     try:
         result = compute_buffer(req.geometry, req.distance)
@@ -31,12 +36,7 @@ def buffer_analysis(req: BufferRequest):
         raise HTTPException(status_code=500, detail=f"Buffer analysis failed: {e}")
 
 
-@router.post(
-    "/distance",
-    response_model=DistanceResponse,
-    summary="距离计算",
-    description="计算两个空间对象之间的距离 (米)",
-)
+@router.post("/distance", response_model=DistanceResponse, summary="距离计算")
 def distance_analysis(req: DistanceRequest):
     try:
         result = compute_distance(req.source, req.target)
@@ -47,18 +47,79 @@ def distance_analysis(req: DistanceRequest):
         raise HTTPException(status_code=500, detail=f"Distance analysis failed: {e}")
 
 
-# ---- Phase 1 接口桩 ----
+@router.post("/query", response_model=QueryResponse, summary="空间数据查询")
+def query_spatial(req: QueryRequest):
+    """从 PostGIS 查询空间数据，返回 GeoJSON FeatureCollection"""
+    try:
+        result = spatial_query(
+            table=req.table,
+            bbox=req.bbox,
+            category=req.category,
+            limit=req.limit,
+        )
+        return QueryResponse(**result)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Spatial query failed: {e}")
 
-@router.post("/route", summary="路径规划 (Phase 2 实现)")
-def route_analysis():
-    raise HTTPException(status_code=501, detail="Route analysis — coming in Phase 2")
+
+@router.post("/route", summary="路径规划")
+def route_analysis(req: RouteRequest):
+    try:
+        result = compute_route(
+            origin=req.origin,
+            destination=req.destination,
+            mode=req.mode,
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Route analysis failed: {e}")
 
 
-@router.post("/overlay", summary="空间叠加分析 (Phase 2 实现)")
-def overlay_analysis():
-    raise HTTPException(status_code=501, detail="Overlay analysis — coming in Phase 2")
+@router.post("/overlay", summary="空间叠加分析")
+def overlay_analysis(req: OverlayRequest):
+    try:
+        result = compute_overlay(
+            layer_a=req.layer_a,
+            layer_b=req.layer_b,
+            operation=req.operation,
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Overlay analysis failed: {e}")
 
 
-@router.post("/suitability", summary="适宜性评价 (Phase 2 实现)")
-def suitability_analysis():
-    raise HTTPException(status_code=501, detail="Suitability analysis — coming in Phase 2")
+@router.post("/density", summary="核密度分析")
+def density_analysis(req: DensityRequest):
+    try:
+        result = compute_density(
+            points=req.points,
+            bandwidth=req.bandwidth,
+            resolution=req.resolution,
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Density analysis failed: {e}")
+
+
+@router.post("/suitability", summary="适宜性评价")
+def suitability_analysis(req: SuitabilityRequest):
+    try:
+        layers = [{"name": l.name, "features": l.features} for l in req.layers]
+        result = compute_suitability(
+            layers=layers,
+            weights=req.weights,
+            grid_size=req.grid_size,
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Suitability analysis failed: {e}")

@@ -2,16 +2,32 @@ import { useEffect, useRef, useCallback } from "react";
 import mapboxgl from "mapbox-gl";
 import { useAppStore } from "../../store";
 import type { GeoJSONFeatureCollection } from "../../types";
+import { DrawTool } from "./DrawTool";
 
-// Phase 1: Mapbox token from env or demo token
 const MAPBOX_TOKEN =
   import.meta.env.VITE_MAPBOX_TOKEN ||
   "pk.eyJ1IjoibWFwYm94LWRlbW8iLCJhIjoiY2x0MHF4dXJuMDhnazJpcGdkYXNhM3pzdyJ9.HklN5NjLgKjDMaVhVQn5Fw";
 
 mapboxgl.accessToken = MAPBOX_TOKEN;
 
-const DEFAULT_CENTER: [number, number] = [116.458, 39.908]; // 北京国贸
+const DEFAULT_CENTER: [number, number] = [116.458, 39.908];
 const DEFAULT_ZOOM = 13;
+
+/** 按 score 分级着色 */
+const COLOR_SCALE = [
+  { threshold: 80, color: "#1b5e20" },
+  { threshold: 60, color: "#4caf50" },
+  { threshold: 40, color: "#ffeb3b" },
+  { threshold: 20, color: "#ff9800" },
+  { threshold: 0, color: "#f44336" },
+];
+
+function getScoreColor(score: number): string {
+  for (const step of COLOR_SCALE) {
+    if (score >= step.threshold) return step.color;
+  }
+  return "#f44336";
+}
 
 export function MapView() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -20,6 +36,7 @@ export function MapView() {
 
   const setMapBounds = useAppStore((s) => s.setMapBounds);
   const agentResponse = useAppStore((s) => s.agentResponse);
+  const drawGeometry = useAppStore((s) => s.drawGeometry);
 
   // 初始化地图
   useEffect(() => {
@@ -35,29 +52,13 @@ export function MapView() {
     map.addControl(new mapboxgl.NavigationControl(), "top-right");
 
     map.on("load", () => {
-      // 同步地图 bounds 到 store
       const bounds = map.getBounds();
-      setMapBounds([
-        bounds.getWest(),
-        bounds.getSouth(),
-        bounds.getEast(),
-        bounds.getNorth(),
-      ]);
+      setMapBounds([bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()]);
     });
 
     map.on("moveend", () => {
       const bounds = map.getBounds();
-      setMapBounds([
-        bounds.getWest(),
-        bounds.getSouth(),
-        bounds.getEast(),
-        bounds.getNorth(),
-      ]);
-    });
-
-    // 地图点击获取坐标
-    map.on("click", (e) => {
-      console.log("[Map] Click at:", e.lngLat.toArray());
+      setMapBounds([bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()]);
     });
 
     mapRef.current = map;
@@ -68,36 +69,97 @@ export function MapView() {
     };
   }, []);
 
-  // 当 Agent 返回结果时，渲染 GeoJSON 到地图
-  const addGeoJSONLayer = useCallback(
-    (data: GeoJSONFeatureCollection, layerId: string, color = "#ff4444") => {
-      const map = mapRef.current;
-      if (!map) return;
+  // 渲染框选区域
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapRef.current?.loaded()) return;
 
-      // 移除旧图层
-      if (layersRef.current.includes(layerId)) {
-        try {
-          map.removeLayer(layerId);
-          map.removeSource(layerId);
-        } catch { /* ignore */ }
-      }
+    const layerId = "draw-geometry";
+    try { map.removeLayer(layerId); map.removeSource(layerId); } catch { /* */ }
 
-      map.addSource(layerId, { type: "geojson", data: data as any });
+    if (drawGeometry?.features?.length) {
+      map.addSource(layerId, { type: "geojson", data: drawGeometry as any });
       map.addLayer({
         id: layerId,
-        type: "fill",
+        type: "line",
         source: layerId,
-        paint: {
-          "fill-color": color,
-          "fill-opacity": 0.35,
-          "fill-outline-color": color,
-        },
+        paint: { "line-color": "#1a237e", "line-width": 2, "line-dasharray": [4, 4] },
       });
       layersRef.current.push(layerId);
+    }
+  }, [drawGeometry]);
 
-      // 飞至数据范围
-      // map.fitBounds awaits bounds computation; use flyTo for simplicity
-      map.flyTo({ center: DEFAULT_CENTER, zoom: 14 });
+  // 当 Agent 返回结果时渲染 GeoJSON，支持分级着色
+  const addGeoJSONLayer = useCallback(
+    (fc: GeoJSONFeatureCollection, layerId: string) => {
+      const map = mapRef.current;
+      if (!map || !fc?.features?.length) return;
+
+      try { map.removeLayer(layerId); map.removeSource(layerId); } catch { /* */ }
+
+      // 检查是否有 score 属性 → 分级着色
+      const hasScore = fc.features.some(
+        (f) => typeof f.properties?.score === "number"
+      );
+
+      map.addSource(layerId, { type: "geojson", data: fc as any });
+
+      if (hasScore) {
+        // 按 score 分段着色
+        const cases: any[] = [];
+        COLOR_SCALE.forEach((step) => {
+          cases.push(step.threshold);
+          cases.push(step.color);
+        });
+        // score → color mapping via match + interpolation
+        map.addLayer({
+          id: layerId,
+          type: "fill",
+          source: layerId,
+          paint: {
+            "fill-color": [
+              "interpolate",
+              ["linear"],
+              ["get", "score"],
+              0, "#f44336",
+              20, "#ff9800",
+              40, "#ffeb3b",
+              60, "#4caf50",
+              80, "#1b5e20",
+              100, "#003300",
+            ],
+            "fill-opacity": 0.5,
+            "fill-outline-color": "#333",
+          },
+        });
+      } else {
+        // 无 score: 默认蓝色
+        map.addLayer({
+          id: layerId,
+          type: "fill",
+          source: layerId,
+          paint: {
+            "fill-color": "#4488ff",
+            "fill-opacity": 0.35,
+            "fill-outline-color": "#4488ff",
+          },
+        });
+      }
+
+      layersRef.current.push(layerId);
+
+      // 飞到数据范围
+      try {
+        const bounds = new mapboxgl.LngLatBounds();
+        fc.features.forEach((f) => {
+          if (f.geometry?.type === "Point" && f.geometry.coordinates) {
+            bounds.extend(f.geometry.coordinates as [number, number]);
+          }
+        });
+        if (!bounds.isEmpty()) {
+          map.fitBounds(bounds, { padding: 80, maxZoom: 15 });
+        }
+      } catch { /* ignore */ }
     },
     []
   );
@@ -106,16 +168,14 @@ export function MapView() {
   useEffect(() => {
     if (!agentResponse?.results || !mapRef.current) return;
     agentResponse.results.forEach((fc, i) => {
-      if (fc?.features?.length) {
-        addGeoJSONLayer(fc, `agent-result-${i}`, i === 0 ? "#ff4444" : "#4488ff");
-      }
+      addGeoJSONLayer(fc, `agent-result-${i}`);
     });
   }, [agentResponse, addGeoJSONLayer]);
 
   return (
-    <div
-      ref={containerRef}
-      style={{ width: "100%", height: "100%" }}
-    />
+    <div style={{ width: "100%", height: "100%", position: "relative" }}>
+      <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
+      <DrawTool map={mapRef.current} />
+    </div>
   );
 }
