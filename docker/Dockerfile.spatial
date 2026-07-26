@@ -1,0 +1,25 @@
+# GeoAI Spatial Service — 空间能力服务层
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# 系统依赖 (GeoPandas / Shapely 需要 GDAL/GEOS)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgdal-dev \
+    gcc \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+# 安装 uv
+RUN pip install uv
+
+# 依赖安装
+COPY pyproject.toml .
+RUN uv sync --frozen 2>/dev/null || uv sync
+
+# 源码
+COPY src/ src/
+
+# 启动
+EXPOSE 8002
+CMD ["uv", "run", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8002"]

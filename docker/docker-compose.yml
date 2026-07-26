@@ -1,0 +1,88 @@
+version: "3.9"
+
+services:
+  # ==========================================
+  # 空间数据层: PostgreSQL + PostGIS
+  # ==========================================
+  postgis:
+    image: postgis/postgis:16-3.4
+    container_name: geoai-postgis
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-geoai}
+      POSTGRES_USER: ${POSTGRES_USER:-geoai}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-geoai123}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgis_data:/var/lib/postgresql/data
+      - ../database/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-geoai} -d ${POSTGRES_DB:-geoai}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - geoai-net
+
+  # ==========================================
+  # 空间能力服务层: FastAPI GIS Engine
+  # ==========================================
+  spatial:
+    build:
+      context: ../spatial
+      dockerfile: ../docker/Dockerfile.spatial
+    container_name: geoai-spatial
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-geoai}:${POSTGRES_PASSWORD:-geoai123}@postgis:5432/${POSTGRES_DB:-geoai}
+    ports:
+      - "8002:8002"
+    depends_on:
+      postgis:
+        condition: service_healthy
+    networks:
+      - geoai-net
+
+  # ==========================================
+  # Spatial Agent 层: LangChain + LangGraph
+  # ==========================================
+  agent:
+    build:
+      context: ../agent
+      dockerfile: ../docker/Dockerfile.agent
+    container_name: geoai-agent
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      LLM_MODEL: ${LLM_MODEL:-gpt-4o}
+      SPATIAL_SERVICE_URL: http://spatial:8002
+    ports:
+      - "8001:8001"
+    depends_on:
+      - spatial
+    networks:
+      - geoai-net
+
+  # ==========================================
+  # 用户交互层: React + Vite 前端
+  # ==========================================
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: ../docker/Dockerfile.frontend
+      args:
+        VITE_MAPBOX_TOKEN: ${VITE_MAPBOX_TOKEN}
+        VITE_CESIUM_ION_TOKEN: ${VITE_CESIUM_ION_TOKEN}
+    container_name: geoai-frontend
+    ports:
+      - "5173:5173"
+    depends_on:
+      - agent
+    networks:
+      - geoai-net
+
+volumes:
+  postgis_data:
+
+networks:
+  geoai-net:
+    driver: bridge

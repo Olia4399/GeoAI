@@ -1,0 +1,20 @@
+# GeoAI Frontend — React + Vite + Mapbox + Cesium
+FROM node:22-alpine
+
+WORKDIR /app
+
+# pnpm
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
+COPY package.json pnpm-lock.yaml* ./
+RUN pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+
+COPY . .
+
+ARG VITE_MAPBOX_TOKEN
+ARG VITE_CESIUM_ION_TOKEN
+ENV VITE_MAPBOX_TOKEN=${VITE_MAPBOX_TOKEN}
+ENV VITE_CESIUM_ION_TOKEN=${VITE_CESIUM_ION_TOKEN}
+
+EXPOSE 5173
+CMD ["pnpm", "dev", "--host", "0.0.0.0"]
