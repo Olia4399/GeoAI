@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useAppStore } from "../../store";
 import { agentApi } from "../../services/agent";
-import ReactMarkdown from "react-markdown";
+import { ReportContent } from "./ReportRenderer";
 
 interface HistoryItem {
   id: string;
@@ -122,7 +122,7 @@ export function HistoryPanel() {
           </div>
         )}
         <div style={{ background: "#fff", borderRadius: 8, padding: 12, border: "1px solid #e8e8e8" }}>
-          <ReactMarkdown>{detail.report || "无报告"}</ReactMarkdown>
+          <ReportContent>{detail.report || "无报告"}</ReportContent>
         </div>
       </div>
     );

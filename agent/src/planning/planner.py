@@ -36,7 +36,12 @@ class SpatialPlanner:
 - 简单问题 1 步搞定，不要过度分析
 - 地名无法查找坐标时，直接用你的知识估算坐标 (北京地名坐标你大多知道)
 - distance_analysis 的 source/target 参数可以是地名或坐标字符串
-- spatial_query 的 category 参数可直接过滤"""
+- spatial_query 的 category 参数可直接过滤
+
+输出格式要求:
+- 不要在句子中间用反引号包裹普通文本（如店名、坐标、地名）。反引号仅用于代码片段
+- 强调用**粗体**，引用店名用"中文引号"
+- 坐标用括号表示，如 (116.458, 39.908)，不要加反引号"""
 
     def __init__(self):
         self.llm = ChatOpenAI(
