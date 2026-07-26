@@ -21,6 +21,7 @@ from ..services.route import compute_route
 from ..services.overlay import compute_overlay
 from ..services.density import compute_density
 from ..services.suitability import compute_suitability
+from ..services.temporal import temporal_analysis as temporal_svc
 
 router = APIRouter()
 
@@ -107,6 +108,21 @@ def density_analysis(req: DensityRequest):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Density analysis failed: {e}")
+
+
+@router.post("/temporal", summary="时空变化分析")
+def temporal_analysis(req: QueryRequest):
+    try:
+        result = temporal_svc(
+            table=req.table,
+            bbox=req.bbox,
+            category=req.category,
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Temporal analysis failed: {e}")
 
 
 @router.post("/suitability", summary="适宜性评价")

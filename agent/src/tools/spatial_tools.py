@@ -57,6 +57,12 @@ class SuitabilityAnalysisInput(BaseModel):
     weights: dict[str, float] = Field(description="权重 {'layer_name': weight}")
 
 
+class TemporalAnalysisInput(BaseModel):
+    table: str = Field(default="poi", description="表名: poi")
+    bbox: Optional[list[float]] = Field(default=None, description="空间范围")
+    category: Optional[str] = Field(default=None, description="类别过滤")
+
+
 # ============================================================
 # Tool Handler 实现
 # ============================================================
@@ -171,6 +177,14 @@ async def _suitability_analysis(layers: list[dict], weights: dict[str, float]) -
     })
 
 
+async def _temporal_analysis(table: str = "poi", bbox=None, category=None) -> dict:
+    return await _post("temporal", {
+        "table": table,
+        "bbox": bbox,
+        "category": category,
+    })
+
+
 # ============================================================
 # Tool 注册
 # ============================================================
@@ -220,6 +234,12 @@ def register_spatial_tools():
             description="多因子加权叠加，计算综合适宜性评分。输入多个评分图层(带score的FeatureCollection)和权重字典，返回每个网格单元的综合得分 GeoJSON。这是选址分析的最终评分工具。",
             args_schema=SuitabilityAnalysisInput,
             handler=_suitability_analysis,
+        ),
+        Tool(
+            name="temporal_analysis",
+            description="时空变化分析。对比 POI 数据的空间分布和类别构成，识别热点区域。用于了解某类设施的增长趋势和空间聚集特征。",
+            args_schema=TemporalAnalysisInput,
+            handler=_temporal_analysis,
         ),
     ]
 

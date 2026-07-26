@@ -15,6 +15,7 @@ interface AppState {
   drawGeometry: GeoJSONFeatureCollection | null;
   mapMode: MapMode;
   drawMode: DrawMode;
+  layerVisibility: Record<string, boolean>;
 
   // Agent 交互
   query: string;
@@ -30,6 +31,8 @@ interface AppState {
   setDrawGeometry: (geo: GeoJSONFeatureCollection | null) => void;
   setDrawMode: (mode: DrawMode) => void;
   setMapMode: (mode: MapMode) => void;
+  setLayerVisibility: (id: string, visible: boolean) => void;
+  toggleLayerVisibility: (id: string) => void;
   submitQuery: (query: string) => void;
   cancelQuery: () => void;
   clearResults: () => void;
@@ -41,6 +44,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   drawGeometry: null,
   mapMode: "2d",
   drawMode: null,
+  layerVisibility: { poi: true, roads: true, buildings: true, districts: true, analysis: true, buffer: true },
   query: "",
   loading: false,
   agentResponse: null,
@@ -53,6 +57,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   setDrawGeometry: (geo) => set({ drawGeometry: geo }),
   setDrawMode: (mode) => set({ drawMode: mode }),
   setMapMode: (mode) => set({ mapMode: mode }),
+  setLayerVisibility: (id, visible) =>
+    set((s) => ({ layerVisibility: { ...s.layerVisibility, [id]: visible } })),
+  toggleLayerVisibility: (id) =>
+    set((s) => ({ layerVisibility: { ...s.layerVisibility, [id]: !s.layerVisibility[id] } })),
 
   submitQuery: (query: string) => {
     // 取消之前的流

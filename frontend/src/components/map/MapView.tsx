@@ -3,6 +3,8 @@ import mapboxgl from "mapbox-gl";
 import { useAppStore } from "../../store";
 import type { GeoJSONFeatureCollection } from "../../types";
 import { DrawTool } from "./DrawTool";
+import { LayerPanel } from "./LayerPanel";
+import { useState } from "react";
 
 const MAPBOX_TOKEN =
   import.meta.env.VITE_MAPBOX_TOKEN ||
@@ -33,10 +35,13 @@ export function MapView() {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const layersRef = useRef<string[]>([]);
+  const [layerPanelVisible, setLayerPanelVisible] = useState(false);
 
   const setMapBounds = useAppStore((s) => s.setMapBounds);
   const agentResponse = useAppStore((s) => s.agentResponse);
   const drawGeometry = useAppStore((s) => s.drawGeometry);
+  const layerVisibility = useAppStore((s) => s.layerVisibility);
+  const setLayerVisibility = useAppStore((s) => s.setLayerVisibility);
 
   // 初始化地图
   useEffect(() => {
@@ -176,6 +181,12 @@ export function MapView() {
     <div style={{ width: "100%", height: "100%", position: "relative" }}>
       <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
       <DrawTool map={mapRef.current} />
+      <LayerPanel
+        visible={layerPanelVisible}
+        onToggle={() => setLayerPanelVisible(!layerPanelVisible)}
+        visibility={layerVisibility}
+        onVisibilityChange={(id, visible) => setLayerVisibility(id, visible)}
+      />
     </div>
   );
 }

@@ -30,7 +30,7 @@ def spatial_query(
         GeoJSON FeatureCollection
     """
     # 表名白名单防注入
-    allowed_tables = {"buildings", "poi", "roads"}
+    allowed_tables = {"buildings", "poi", "roads", "districts"}
     if table not in allowed_tables:
         raise ValueError(f"Table '{table}' not allowed. Choose from: {allowed_tables}")
 
@@ -60,6 +60,12 @@ def spatial_query(
         cols = "id, name, road_type, speed_limit, geom"
         if category:
             where_parts.append("road_type = %s")
+            params.append(category)
+    elif table == "districts":
+        cols = "id, name, admin_level, population_10k, area_sqkm, geom"
+        if category:
+            # category 可以是区名
+            where_parts.append("name = %s")
             params.append(category)
 
     if bbox and len(bbox) == 4:
