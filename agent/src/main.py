@@ -5,6 +5,14 @@ Spatial Agent 层: LLM 意图理解 + 任务规划 + 工具调用 + 结果解释
 
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
+
+# 自动加载 agent/.env 文件
+from dotenv import load_dotenv
+
+_env_file = Path(__file__).resolve().parent.parent / ".env"
+load_dotenv(_env_file)
+print(f"[agent] Loaded env from: {_env_file}")
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware

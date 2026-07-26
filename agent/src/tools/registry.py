@@ -5,6 +5,8 @@
 
 from typing import Any, Callable
 
+from pydantic import BaseModel
+
 
 class Tool:
     """单个 Tool 定义"""
@@ -13,12 +15,12 @@ class Tool:
         self,
         name: str,
         description: str,
-        parameters: dict,
+        args_schema: type[BaseModel],
         handler: Callable,
     ):
         self.name = name
         self.description = description
-        self.parameters = parameters  # JSON Schema for parameters
+        self.args_schema = args_schema  # Pydantic model for argument validation
         self.handler = handler  # async callable
 
     def to_openai_function(self) -> dict:
@@ -28,20 +30,30 @@ class Tool:
             "function": {
                 "name": self.name,
                 "description": self.description,
-                "parameters": self.parameters,
+                "parameters": _pydantic_to_json_schema(self.args_schema),
             },
         }
 
     def to_langchain_tool(self):
         """转为 LangChain StructuredTool"""
-        from langchain.tools import StructuredTool
+        from langchain_core.tools import StructuredTool
 
         return StructuredTool(
             name=self.name,
             description=self.description,
-            args_schema=None,  # Phase 1 简单处理
-            func=self.handler,
+            args_schema=self.args_schema,
+            coroutine=self.handler,
         )
+
+
+def _pydantic_to_json_schema(model: type[BaseModel]) -> dict:
+    """将 Pydantic model 转为 JSON Schema dict (简化版)"""
+    schema = model.model_json_schema()
+    return {
+        "type": "object",
+        "properties": schema.get("properties", {}),
+        "required": schema.get("required", []),
+    }
 
 
 class ToolRegistry:

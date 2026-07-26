@@ -1,53 +1,45 @@
 """意图解析模块
 
-使用 LLM + Structured Output 将自然语言转换为结构化空间任务。
+使用 LLM + JSON 输出将自然语言转换为结构化空间任务。
+(DeepSeek 不支持 response_format，改用 JSON prompt + 手动解析)
 """
 
+import json
 import os
-from typing import Optional
+import re
 
 from langchain_openai import ChatOpenAI
-from pydantic import BaseModel, Field
+from langchain_core.messages import SystemMessage, HumanMessage
 
 
-class SpatialIntent(BaseModel):
-    """空间意图结构化 Schema"""
-    task_type: str = Field(
-        description="空间任务类型: site_selection, buffer_analysis, distance_analysis, suitability_evaluation",
-        examples=["site_selection"],
-    )
-    location: str = Field(
-        description="分析区域描述",
-        examples=["北京朝阳区"],
-    )
-    industry: Optional[str] = Field(
-        default=None,
-        description="行业类型 (选址任务时)",
-        examples=["coffee", "charging_station", "retail"],
-    )
-    criteria: list[str] = Field(
-        description="分析指标列表",
-        examples=[["population_density", "transport_accessibility", "competitor_density"]],
-    )
-    geometry_needed: bool = Field(
-        default=True,
-        description="是否需要几何空间计算",
-    )
+INTENT_SYSTEM_PROMPT = """你是一个空间分析意图解析器。根据用户的自然语言输入，将需求转换为 JSON 格式。
 
+## 输出格式 (严格 JSON，不要包含 markdown 代码块)
 
-INTENT_SYSTEM_PROMPT = """你是一个空间分析意图解析器。根据用户的自然语言输入，提取结构化的空间分析任务。
+{
+  "task_type": "buffer_analysis|distance_analysis|site_selection|suitability_evaluation",
+  "location": "分析区域描述",
+  "industry": "行业类型 (选址任务时填写，否则为 null)",
+  "criteria": ["分析指标列表"],
+  "geometry_needed": true
+}
 
-任务类型说明:
-- site_selection: 选址分析（在哪里开咖啡店/超市/充电站等）
-- buffer_analysis: 缓冲区分析（计算某点周边范围）
-- distance_analysis: 距离计算（计算两点/两区域距离）
+## 任务类型
+
+- buffer_analysis: 缓冲区分析（计算某点/区域周边范围，如"500米缓冲区"）
+- distance_analysis: 距离计算（两点/两区域距离）
+- site_selection: 选址分析（在哪开店/建站，需要综合考虑多因素）
 - suitability_evaluation: 适宜性评价（某区域是否适合某用途）
 
-请仔细分析用户需求，返回准确的结构化意图。"""
+## 要求
+
+- 只输出 JSON，不要任何解释文字
+- criteria 字段列出相关的分析指标 (如 population_density, transport_accessibility, competitor_density)
+- geometry_needed 通常为 true"""
 
 
 class IntentParser:
-    """LLM 意图解析器"""
+    """LLM 意图解析器 (JSON 模式)"""
 
     def __init__(self):
         self.llm = ChatOpenAI(
@@ -56,13 +48,52 @@ class IntentParser:
             base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
             temperature=0,
         )
-        self.structured_llm = self.llm.with_structured_output(SpatialIntent)
+
+    @staticmethod
+    def _extract_json(text: str) -> dict:
+        """从 LLM 输出中提取 JSON 对象"""
+        # 尝试直接解析
+        text = text.strip()
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            pass
+
+        # 尝试提取 ```json ... ``` 代码块
+        match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", text)
+        if match:
+            try:
+                return json.loads(match.group(1))
+            except json.JSONDecodeError:
+                pass
+
+        # 尝试提取 { ... } 最外层
+        match = re.search(r"\{[\s\S]*\}", text)
+        if match:
+            try:
+                return json.loads(match.group(0))
+            except json.JSONDecodeError:
+                pass
+
+        raise ValueError(f"Failed to parse JSON from LLM output: {text[:300]}")
 
     async def parse(self, query: str) -> dict:
         """解析用户自然语言为结构化空间意图"""
         messages = [
-            ("system", INTENT_SYSTEM_PROMPT),
-            ("user", query),
+            SystemMessage(content=INTENT_SYSTEM_PROMPT),
+            HumanMessage(content=query),
         ]
-        intent: SpatialIntent = await self.structured_llm.ainvoke(messages)
-        return intent.model_dump()
+        response = await self.llm.ainvoke(messages)
+        raw = str(response.content).strip()
+        print(f"[parser] LLM raw output: {raw[:200]}")
+
+        result = self._extract_json(raw)
+
+        # 确保必需字段
+        result.setdefault("task_type", "buffer_analysis")
+        result.setdefault("location", "未知区域")
+        result.setdefault("industry", None)
+        result.setdefault("criteria", [])
+        result.setdefault("geometry_needed", True)
+
+        return result

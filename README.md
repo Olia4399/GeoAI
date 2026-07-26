@@ -1,4 +1,4 @@
-# GeoAI 城市空间智能分析平台
+**\*\*\*\***# GeoAI 城市空间智能分析平台
 
 基于大语言模型 Agent、空间数据库和 WebGIS 技术的城市空间智能分析平台。
 
@@ -38,13 +38,13 @@
 
 ## 技术栈
 
-| 层级 | 技术 |
-|------|------|
-| 前端 | React 19, TypeScript, Mapbox GL JS, CesiumJS, Vite |
-| Agent | LangChain, LangGraph, FastAPI, OpenAI 兼容 API |
-| 空间服务 | FastAPI, GeoPandas, Shapely, PySAL, Rasterio |
-| 数据库 | PostgreSQL 16, PostGIS 3.4 |
-| 部署 | Docker Compose |
+| 层级     | 技术                                               |
+| -------- | -------------------------------------------------- |
+| 前端     | React 19, TypeScript, Mapbox GL JS, CesiumJS, Vite |
+| Agent    | LangChain, LangGraph, FastAPI, OpenAI 兼容 API     |
+| 空间服务 | FastAPI, GeoPandas, Shapely, PySAL, Rasterio       |
+| 数据库   | PostgreSQL 16, PostGIS 3.4                         |
+| 部署     | Docker Compose                                     |
 
 ## 快速启动
 
@@ -67,6 +67,7 @@ docker compose up -d
 ```
 
 服务端口：
+
 - 前端：http://localhost:5173
 - Agent API：http://localhost:8001
 - Spatial API：http://localhost:8002
