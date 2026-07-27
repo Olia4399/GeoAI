@@ -11,15 +11,31 @@ const S: Record<string, React.CSSProperties> = {
   hint: { fontSize: 11, color: "#999", marginTop: 6 },
   progress: { marginTop: 8, padding: "8px 10px", background: "#f5f5f5", borderRadius: 6, fontSize: 12 },
   step: { padding: "2px 0", color: "#666", display: "flex", alignItems: "center", gap: 6 },
-  dot: { width: 6, height: 6, borderRadius: 3, background: "#4caf50", display: "inline-block" },
-  dotPending: { width: 6, height: 6, borderRadius: 3, background: "#ccc", display: "inline-block" },
+  time: { marginLeft: "auto", fontSize: 10, color: "#999", fontVariantNumeric: "tabular-nums", flexShrink: 0 },
+  dot: { width: 6, height: 6, borderRadius: 3, background: "#4caf50", display: "inline-block", flexShrink: 0 },
+  dotPending: { width: 6, height: 6, borderRadius: 3, background: "#ccc", display: "inline-block", flexShrink: 0 },
 };
 
 const PHASE_LABELS: Record<string, string> = {
   intent: "🎯 意图解析",
-  planning: "🧠 任务规划",
+  planning: "🧠 任务规划 / Tool 执行",
   report: "📝 生成报告",
 };
+
+function fmtSec(s?: number): string {
+  if (s == null || Number.isNaN(s)) return "";
+  return s < 10 ? `${s.toFixed(2)}s` : `${s.toFixed(1)}s`;
+}
+
+function stepLabel(data: any): string {
+  if (!data) return "步骤";
+  if (data.kind === "tool_result" || data.action === "tool_result") {
+    return data.content || `${data.tool || "tool"} 返回`;
+  }
+  if (data.tool) return `调用: ${data.tool}`;
+  if (data.action === "reasoning") return "推理…";
+  return data.action || data.content?.slice?.(0, 40) || "步骤";
+}
 
 export function ChatPanel() {
   const [input, setInput] = useState("");
@@ -58,32 +74,37 @@ export function ChatPanel() {
         )}
       </form>
 
-      {/* SSE 实时进度 */}
+      {/* SSE 实时进度 + 逐步耗时 */}
       {streamProgress && (
         <div style={S.progress}>
           {["intent", "planning", "report"].map((phase) => {
-            const isCurrent = streamProgress.phase === phase;
-            const isDone = (
-              (phase === "intent" && streamProgress.steps.length > 0) ||
+            const isCurrent = streamProgress.phase === phase && streamProgress.status === "running";
+            const phaseDone =
+              streamProgress.phaseElapsed[phase] != null ||
+              (phase === "intent" && (streamProgress.phase === "planning" || streamProgress.phase === "report" || streamProgress.steps.length > 0)) ||
               (phase === "planning" && (streamProgress.phase === "report" || streamProgress.phase === "done")) ||
-              (phase === "report" && streamProgress.phase === "done")
-            );
+              (phase === "report" && streamProgress.phase === "done");
+            const elapsed = streamProgress.phaseElapsed[phase];
             return (
               <div key={phase} style={S.step}>
-                <span style={isDone ? S.dot : isCurrent ? { ...S.dot, background: "#ff9800" } : S.dotPending} />
+                <span style={phaseDone ? S.dot : isCurrent ? { ...S.dot, background: "#ff9800" } : S.dotPending} />
                 <span style={{ color: isCurrent ? "#333" : "#999", fontWeight: isCurrent ? 600 : 400 }}>
                   {PHASE_LABELS[phase]}
-                  {isCurrent && streamProgress.status === "running" ? "..." : ""}
-                  {isDone ? " ✓" : ""}
+                  {isCurrent ? "..." : ""}
+                  {phaseDone ? " ✓" : ""}
                 </span>
+                {elapsed != null && <span style={S.time}>{fmtSec(elapsed)}</span>}
               </div>
             );
           })}
           {streamProgress.steps.map((s, i) => (
             <div key={i} style={{ ...S.step, paddingLeft: 18, fontSize: 11 }}>
               <span style={S.dot} />
-              <span>
-                {s.data?.tool ? `调用: ${s.data.tool}` : s.data?.action || `步骤 ${i + 1}`}
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {stepLabel(s.data)}
+              </span>
+              <span style={S.time} title={`累计 ${fmtSec(s.elapsed_s)}`}>
+                {s.step_elapsed_s != null ? `+${fmtSec(s.step_elapsed_s)}` : fmtSec(s.elapsed_s)}
               </span>
             </div>
           ))}

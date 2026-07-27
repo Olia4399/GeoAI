@@ -5,6 +5,7 @@
 
 import json
 import os
+import time
 
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
@@ -77,8 +78,11 @@ class ResultInterpreter:
         steps: list[dict],
         results: list[dict],
     ) -> str:
-        """生成分析报告 (集成 RAG 知识检索)"""
+        """生成分析报告 (集成 RAG 知识检索)；打印分阶段耗时便于排查"""
+        t0 = time.time()
         kb_context = self._build_knowledge_context(intent)
+        rag_s = round(time.time() - t0, 3)
+        print(f"[interpreter] RAG 检索耗时 {rag_s}s")
 
         user_prompt = f"""
 分析任务: {json.dumps(intent, ensure_ascii=False, indent=2)}
@@ -106,5 +110,8 @@ class ResultInterpreter:
             SystemMessage(content=INTERPRETER_SYSTEM_PROMPT),
             HumanMessage(content=user_prompt),
         ]
+        t_llm = time.time()
         response = await self.llm.ainvoke(messages)
+        llm_s = round(time.time() - t_llm, 3)
+        print(f"[interpreter] LLM 报告生成耗时 {llm_s}s · 合计 {round(time.time() - t0, 3)}s")
         return str(response.content)

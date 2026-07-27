@@ -18,6 +18,20 @@ function truncateStep(text: string): string {
   return match ? match[1] : cleaned.slice(0, 120);
 }
 
+function fmtSec(s?: number): string {
+  if (s == null || Number.isNaN(s)) return "";
+  return s < 10 ? `${s.toFixed(2)}s` : `${s.toFixed(1)}s`;
+}
+
+function stepTitle(s: any): string {
+  if (s.kind === "tool_result" || s.action === "tool_result") {
+    return s.content || `${s.tool || "tool"} 返回`;
+  }
+  if (s.tool) return `${s.tool} — 调用`;
+  if (s.action === "reasoning") return truncateStep(String(s.content || "推理"));
+  return truncateStep(String(s.content || s.action || ""));
+}
+
 const LIST_STYLE: Record<string, React.CSSProperties> = {
   container: { flex: 1, overflow: "auto", padding: 12 },
   card: {
@@ -41,6 +55,27 @@ const LIST_STYLE: Record<string, React.CSSProperties> = {
     marginBottom: 4,
   },
   empty: { color: "#bbb", textAlign: "center" as const, padding: 40, fontSize: 14 },
+  time: {
+    marginLeft: "auto",
+    fontSize: 11,
+    color: COLORS.textLight,
+    fontVariantNumeric: "tabular-nums",
+    flexShrink: 0,
+  },
+  stepRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    padding: "4px 0",
+    fontSize: 12,
+    color: COLORS.textLight,
+  },
+};
+
+const PHASE_HINT: Record<string, string> = {
+  intent: "解析意图",
+  planning: "执行分析（心流）",
+  report: "生成报告",
 };
 
 export function MessageList() {
@@ -48,7 +83,8 @@ export function MessageList() {
   const loading = useAppStore((s) => s.loading);
   const error = useAppStore((s) => s.error);
   const streamProgress = useAppStore((s) => s.streamProgress);
-  const [stepsCollapsed, setStepsCollapsed] = useState(true);
+  // 完成后默认展开步骤，方便看耗时；流式过程中也展开
+  const [stepsCollapsed, setStepsCollapsed] = useState(false);
 
   if (!agentResponse && !loading && !error && !streamProgress) {
     return (
@@ -63,9 +99,58 @@ export function MessageList() {
 
   return (
     <div style={LIST_STYLE.container}>
+      {/* 流式心流：报告生成前即可看到每一步 + 耗时 */}
       {loading && streamProgress && (
-        <div style={{ ...LIST_STYLE.card, fontSize: 12, color: COLORS.textLight }}>
-          🧠 分析中 — {streamProgress.phase === "intent" ? "解析意图" : streamProgress.phase === "planning" ? "执行分析" : "生成报告"}...
+        <div style={LIST_STYLE.card}>
+          <div style={{ fontWeight: 600, marginBottom: 8, color: COLORS.heading, fontSize: 14 }}>
+            🧠 {PHASE_HINT[streamProgress.phase] || "分析中"}…
+          </div>
+          {(["intent", "planning", "report"] as const).map((phase) => {
+            const elapsed = streamProgress.phaseElapsed[phase];
+            const isCurrent = streamProgress.phase === phase && streamProgress.status === "running";
+            return (
+              <div key={phase} style={LIST_STYLE.stepRow}>
+                <span style={{ width: 14, textAlign: "center", color: isCurrent ? "#ff9800" : elapsed != null ? "#4caf50" : "#ccc" }}>
+                  {elapsed != null ? "✓" : isCurrent ? "●" : "○"}
+                </span>
+                <span style={{ color: isCurrent ? COLORS.heading : COLORS.textLight, fontWeight: isCurrent ? 600 : 400 }}>
+                  {PHASE_HINT[phase]}
+                </span>
+                {elapsed != null && <span style={LIST_STYLE.time}>{fmtSec(elapsed)}</span>}
+              </div>
+            );
+          })}
+          {streamProgress.steps.length > 0 && (
+            <div style={{ marginTop: 8, borderTop: `1px solid ${COLORS.border}`, paddingTop: 8 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: COLORS.heading, marginBottom: 4 }}>
+                心流步骤（含逐步耗时）
+              </div>
+              {streamProgress.steps.map((s, i) => (
+                <div key={i} style={LIST_STYLE.stepRow}>
+                  <span style={{
+                    display: "inline-block",
+                    width: 18,
+                    height: 18,
+                    borderRadius: 9,
+                    background: COLORS.primary,
+                    color: "#fff",
+                    textAlign: "center",
+                    lineHeight: "18px",
+                    fontSize: 10,
+                    flexShrink: 0,
+                  }}>
+                    {i + 1}
+                  </span>
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {stepTitle(s.data)}
+                  </span>
+                  <span style={LIST_STYLE.time} title={`累计 ${fmtSec(s.elapsed_s)}`}>
+                    {s.step_elapsed_s != null ? `+${fmtSec(s.step_elapsed_s)}` : fmtSec(s.elapsed_s)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -91,6 +176,12 @@ export function MessageList() {
               <strong>任务:</strong> {agentResponse.intent.task_type}
               &nbsp;|&nbsp;
               <strong>位置:</strong> {agentResponse.intent.location}
+              {agentResponse.timings?.intent_s != null && (
+                <>
+                  &nbsp;|&nbsp;
+                  <strong>耗时:</strong> {fmtSec(agentResponse.timings.intent_s)}
+                </>
+              )}
             </div>
             {agentResponse.intent.criteria?.length > 0 && (
               <div style={{ marginTop: 4 }}>
@@ -101,7 +192,7 @@ export function MessageList() {
             )}
           </div>
 
-          {/* 执行步骤卡片 — 可折叠 */}
+          {/* 执行步骤卡片 — 默认展开，展示逐步耗时 */}
           {agentResponse.steps?.length > 0 && (
             <div style={LIST_STYLE.card}>
               <div
@@ -117,7 +208,14 @@ export function MessageList() {
                   userSelect: "none",
                 }}
               >
-                <span>📋 执行步骤 ({agentResponse.steps.length})</span>
+                <span>
+                  📋 执行步骤 ({agentResponse.steps.length})
+                  {agentResponse.timings?.planning_s != null && (
+                    <span style={{ fontWeight: 400, color: COLORS.textLight, marginLeft: 8, fontSize: 12 }}>
+                      规划合计 {fmtSec(agentResponse.timings.planning_s)}
+                    </span>
+                  )}
+                </span>
                 <span style={{ fontSize: 16, color: COLORS.textLight, transition: "transform 0.2s", transform: stepsCollapsed ? "rotate(0deg)" : "rotate(90deg)" }}>
                   ▶
                 </span>
@@ -125,7 +223,7 @@ export function MessageList() {
               {!stepsCollapsed && (
                 <div style={{ marginTop: 8 }}>
                   {agentResponse.steps.map((s: any, i: number) => (
-                    <div key={i} style={{ ...LIST_STYLE.intent, paddingLeft: 4 }}>
+                    <div key={i} style={LIST_STYLE.stepRow}>
                       <span style={{
                         display: "inline-block",
                         width: 20,
@@ -136,15 +234,19 @@ export function MessageList() {
                         textAlign: "center",
                         lineHeight: "20px",
                         fontSize: 11,
-                        marginRight: 6,
                         flexShrink: 0,
                       }}>
                         {i + 1}
                       </span>
-                      {s.tool
-                        ? <span><strong>{s.tool}</strong> — 调用</span>
-                        : <span style={{ color: COLORS.textLight }}>{truncateStep(String(s.content || s.action || ""))}</span>
-                      }
+                      <span style={{ flex: 1, minWidth: 0 }}>
+                        {s.tool || s.kind === "tool_result"
+                          ? <span><strong>{s.tool || "tool"}</strong> — {s.kind === "tool_result" ? "返回" : "调用"}</span>
+                          : <span style={{ color: COLORS.textLight }}>{stepTitle(s)}</span>
+                        }
+                      </span>
+                      <span style={LIST_STYLE.time} title={`累计 ${fmtSec(s.elapsed_s)}`}>
+                        {s.step_elapsed_s != null ? `+${fmtSec(s.step_elapsed_s)}` : fmtSec(s.elapsed_s)}
+                      </span>
                     </div>
                   ))}
                 </div>
@@ -177,8 +279,17 @@ export function MessageList() {
                 color: COLORS.primary,
                 fontSize: 15,
                 letterSpacing: 0.5,
+                display: "flex",
+                alignItems: "baseline",
+                gap: 10,
               }}>
-                📝 空间分析报告
+                <span>📝 空间分析报告</span>
+                {(agentResponse.timings?.report_s != null || agentResponse.timings?.total_s != null) && (
+                  <span style={{ fontWeight: 400, fontSize: 12, color: COLORS.textLight }}>
+                    {agentResponse.timings.report_s != null && `报告 ${fmtSec(agentResponse.timings.report_s)}`}
+                    {agentResponse.timings.total_s != null && ` · 总计 ${fmtSec(agentResponse.timings.total_s)}`}
+                  </span>
+                )}
               </div>
               <ReportContent>{agentResponse.report}</ReportContent>
             </div>

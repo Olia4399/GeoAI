@@ -1,7 +1,7 @@
 """Spatial Agent API 路由"""
 
-import asyncio
 import json
+import time
 import traceback
 
 from fastapi import APIRouter, HTTPException
@@ -29,6 +29,7 @@ class AgentQueryResponse(BaseModel):
     results: list[dict]
     report: str
     saved_id: str | None = None
+    timings: dict | None = None
 
 
 # ---- 路由 ----
@@ -38,12 +39,20 @@ def health_check():
     return {"status": "ok", "service": "geoai-agent", "version": "0.1.0"}
 
 
+def _sse(payload: dict) -> str:
+    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
 @router.post("/query", response_model=AgentQueryResponse)
 async def agent_query(req: AgentQueryRequest):
     """Spatial Agent 核心接口: 自然语言 → 分析结果 + 报告 + 自动保存"""
+    t0 = time.time()
+    timings: dict[str, float] = {}
     try:
+        t = time.time()
         parser = IntentParser()
         intent = await parser.parse(req.query)
+        timings["intent_s"] = round(time.time() - t, 3)
 
         # 非空间分析问题 → 直接返回说明
         if intent.get("task_type") == "unsupported":
@@ -68,13 +77,18 @@ async def agent_query(req: AgentQueryRequest):
                     f"- '分析三里屯商圈咖啡店竞争密度'"
                 ),
                 saved_id=None,
+                timings={**timings, "total_s": round(time.time() - t0, 3)},
             )
 
+        t = time.time()
         planner = SpatialPlanner()
         steps, results = await planner.execute(intent, req.context)
+        timings["planning_s"] = round(time.time() - t, 3)
 
+        t = time.time()
         interpreter = ResultInterpreter()
         report = await interpreter.generate(intent, steps, results)
+        timings["report_s"] = round(time.time() - t, 3)
 
         # 自动保存到历史
         saved_id = None
@@ -83,8 +97,12 @@ async def agent_query(req: AgentQueryRequest):
         except Exception:
             pass
 
+        timings["total_s"] = round(time.time() - t0, 3)
+        print(f"[query] timings={timings}")
+
         return AgentQueryResponse(
-            intent=intent, steps=steps, results=results, report=report, saved_id=saved_id,
+            intent=intent, steps=steps, results=results, report=report,
+            saved_id=saved_id, timings=timings,
         )
     except Exception as e:
         traceback.print_exc()
@@ -93,26 +111,93 @@ async def agent_query(req: AgentQueryRequest):
 
 @router.post("/query/stream")
 async def agent_query_stream(req: AgentQueryRequest):
-    """SSE 流式接口: 实时推送分析各阶段结果"""
+    """SSE 流式接口: 实时推送分析各阶段结果（步骤前置心流 + 逐步耗时）"""
     async def event_stream():
+        t0 = time.time()
+        timings: dict[str, float] = {}
         try:
             # 1. 意图解析
-            yield f"data: {json.dumps({'type':'phase','phase':'intent','status':'running'}, ensure_ascii=False)}\n\n"
+            yield _sse({
+                "type": "phase", "phase": "intent", "status": "running",
+                "elapsed_s": 0,
+            })
+            t = time.time()
             parser = IntentParser()
             intent = await parser.parse(req.query)
-            yield f"data: {json.dumps({'type':'phase','phase':'intent','status':'done','data':intent}, ensure_ascii=False)}\n\n"
+            timings["intent_s"] = round(time.time() - t, 3)
+            yield _sse({
+                "type": "phase", "phase": "intent", "status": "done",
+                "data": intent,
+                "elapsed_s": timings["intent_s"],
+                "phase_elapsed_s": timings["intent_s"],
+            })
 
-            # 2. 规划 + 执行
-            yield f"data: {json.dumps({'type':'phase','phase':'planning','status':'running'}, ensure_ascii=False)}\n\n"
+            if intent.get("task_type") == "unsupported":
+                report = (
+                    f"## ⚠️ 当前问题超出平台空间分析能力\n\n"
+                    f"您的问题「{req.query}」不属于空间分析范畴。"
+                )
+                timings["total_s"] = round(time.time() - t0, 3)
+                yield _sse({
+                    "type": "done",
+                    "intent": intent,
+                    "results": [],
+                    "results_count": 0,
+                    "report": report,
+                    "saved_id": None,
+                    "timings": timings,
+                    "elapsed_s": timings["total_s"],
+                })
+                return
+
+            # 2. 规划 + 执行（逐步推送，报告生成前即可看到心流）
+            yield _sse({
+                "type": "phase", "phase": "planning", "status": "running",
+                "elapsed_s": round(time.time() - t0, 3),
+            })
+            t_plan = time.time()
             planner = SpatialPlanner()
-            steps, results = await planner.execute(intent, req.context)
-            for i, s in enumerate(steps):
-                yield f"data: {json.dumps({'type':'step','index':i+1,'total':len(steps),'data':s}, ensure_ascii=False)}\n\n"
+            steps: list[dict] = []
+            results: list[dict] = []
 
-            # 3. 报告
-            yield f"data: {json.dumps({'type':'phase','phase':'report','status':'running'}, ensure_ascii=False)}\n\n"
+            async for ev in planner.execute_stream(intent, req.context):
+                if ev.get("event") == "step":
+                    step = ev["step"]
+                    yield _sse({
+                        "type": "step",
+                        "index": ev["index"],
+                        "total": ev["index"],  # 流式过程中 total 尚未可知，用当前序号
+                        "data": step,
+                        "elapsed_s": ev.get("elapsed_s"),
+                        "step_elapsed_s": step.get("step_elapsed_s"),
+                    })
+                elif ev.get("event") == "complete":
+                    steps = ev.get("steps") or []
+                    results = ev.get("results") or []
+                    timings["planning_s"] = round(time.time() - t_plan, 3)
+
+            yield _sse({
+                "type": "phase", "phase": "planning", "status": "done",
+                "elapsed_s": round(time.time() - t0, 3),
+                "phase_elapsed_s": timings.get("planning_s"),
+                "steps_count": len(steps),
+                "results_count": len(results),
+            })
+
+            # 3. 报告（步骤已全部前置推完）
+            yield _sse({
+                "type": "phase", "phase": "report", "status": "running",
+                "elapsed_s": round(time.time() - t0, 3),
+            })
+            t_report = time.time()
             interpreter = ResultInterpreter()
             report = await interpreter.generate(intent, steps, results)
+            timings["report_s"] = round(time.time() - t_report, 3)
+            yield _sse({
+                "type": "phase", "phase": "report", "status": "done",
+                "elapsed_s": round(time.time() - t0, 3),
+                "phase_elapsed_s": timings["report_s"],
+            })
 
             # 4. 保存
             saved_id = None
@@ -121,10 +206,27 @@ async def agent_query_stream(req: AgentQueryRequest):
             except Exception:
                 pass
 
-            yield f"data: {json.dumps({'type':'done','intent':intent,'results_count':len(results),'report':report,'saved_id':saved_id}, ensure_ascii=False)}\n\n"
+            timings["total_s"] = round(time.time() - t0, 3)
+            print(f"[query/stream] timings={timings}")
+
+            yield _sse({
+                "type": "done",
+                "intent": intent,
+                "results": results,
+                "results_count": len(results),
+                "report": report,
+                "saved_id": saved_id,
+                "timings": timings,
+                "elapsed_s": timings["total_s"],
+                "steps": steps,
+            })
 
         except Exception as e:
             traceback.print_exc()
-            yield f"data: {json.dumps({'type':'error','detail':str(e)}, ensure_ascii=False)}\n\n"
+            yield _sse({
+                "type": "error",
+                "detail": str(e),
+                "elapsed_s": round(time.time() - t0, 3),
+            })
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")

@@ -7,6 +7,7 @@
 import json
 import os
 import re
+import time
 
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
@@ -81,13 +82,14 @@ class IntentParser:
 
     async def parse(self, query: str) -> dict:
         """解析用户自然语言为结构化空间意图"""
+        t0 = time.time()
         messages = [
             SystemMessage(content=INTENT_SYSTEM_PROMPT),
             HumanMessage(content=query),
         ]
         response = await self.llm.ainvoke(messages)
         raw = str(response.content).strip()
-        print(f"[parser] LLM raw output: {raw[:200]}")
+        print(f"[parser] LLM raw output ({round(time.time()-t0, 3)}s): {raw[:200]}")
 
         result = self._extract_json(raw)
 
@@ -98,4 +100,5 @@ class IntentParser:
         result.setdefault("criteria", [])
         result.setdefault("geometry_needed", True)
 
+        print(f"[parser] parse done total={round(time.time()-t0, 3)}s task={result.get('task_type')}")
         return result

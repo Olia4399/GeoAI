@@ -5,6 +5,7 @@
 """
 
 import os
+import time
 from typing import Optional
 
 import httpx
@@ -105,14 +106,21 @@ class McdaAnalysisInput(BaseModel):
 # ============================================================
 
 async def _post(endpoint: str, body: dict) -> dict:
-    """通用 spatial 服务 POST 请求"""
+    """通用 spatial 服务 POST 请求（带耗时日志）"""
+    t0 = time.time()
     async with httpx.AsyncClient(timeout=60) as client:
         resp = await client.post(
             f"{SPATIAL_URL}/api/spatial/{endpoint}",
             json=body,
         )
         resp.raise_for_status()
-        return resp.json()
+        data = resp.json()
+    elapsed = round(time.time() - t0, 3)
+    feat_n = 0
+    if isinstance(data, dict) and isinstance(data.get("features"), list):
+        feat_n = len(data["features"])
+    print(f"[spatial_tool] POST {endpoint} {elapsed}s" + (f" features={feat_n}" if feat_n else ""))
+    return data
 
 
 async def _buffer_analysis(geometry: dict, distance: float) -> dict:

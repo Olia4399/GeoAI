@@ -5,7 +5,16 @@ import { agentApi } from "../services/agent";
 interface StreamProgress {
   phase: string;
   status: string;
-  steps: Array<{ index: number; total: number; data: any }>;
+  steps: Array<{
+    index: number;
+    total: number;
+    data: any;
+    elapsed_s?: number;
+    step_elapsed_s?: number;
+  }>;
+  /** 各 phase 完成时的耗时（秒） */
+  phaseElapsed: Record<string, number>;
+  timings?: AgentResponse["timings"];
 }
 
 interface AppState {
@@ -71,7 +80,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       loading: true,
       error: null,
       agentResponse: null,
-      streamProgress: { phase: "intent", status: "running", steps: [] },
+      streamProgress: { phase: "intent", status: "running", steps: [], phaseElapsed: {} },
     });
 
     const { mapBounds, selectedGeometry, drawGeometry } = get();
@@ -86,22 +95,46 @@ export const useAppStore = create<AppState>((set, get) => ({
       (event) => {
         const { type, data } = event;
         if (type === "phase") {
-          set((s) => ({
-            streamProgress: { ...s.streamProgress!, phase: data.phase, status: data.status },
-          }));
+          set((s) => {
+            const phaseElapsed = { ...s.streamProgress!.phaseElapsed };
+            if (data.status === "done" && data.phase_elapsed_s != null) {
+              phaseElapsed[data.phase] = data.phase_elapsed_s;
+            }
+            return {
+              streamProgress: {
+                ...s.streamProgress!,
+                phase: data.phase,
+                status: data.status,
+                phaseElapsed,
+              },
+            };
+          });
         } else if (type === "step") {
           set((s) => ({
             streamProgress: {
               ...s.streamProgress!,
-              steps: [...s.streamProgress!.steps, data],
+              phase: "planning",
+              status: "running",
+              steps: [
+                ...s.streamProgress!.steps,
+                {
+                  index: data.index,
+                  total: data.total,
+                  data: data.data,
+                  elapsed_s: data.elapsed_s ?? data.data?.elapsed_s,
+                  step_elapsed_s: data.step_elapsed_s ?? data.data?.step_elapsed_s,
+                },
+              ],
             },
           }));
         } else if (type === "done") {
+          const streamedSteps = get().streamProgress?.steps.map((s) => s.data) || [];
           const response: AgentResponse = {
             intent: data.intent || {},
-            steps: get().streamProgress?.steps.map((s) => s.data) || [],
+            steps: (data.steps?.length ? data.steps : streamedSteps) || [],
             results: data.results || [],
             report: data.report || "",
+            timings: data.timings,
           };
           set({ agentResponse: response, loading: false, streamProgress: null });
         } else if (type === "error") {
