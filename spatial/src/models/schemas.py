@@ -116,3 +116,59 @@ class SuitabilityRequest(BaseModel):
     layers: List[SuitabilityLayer] = Field(description="多个评分图层")
     weights: Dict[str, float] = Field(description="权重 {layer_name: weight}")
     grid_size: float = Field(default=0.002, description="网格大小 (度)")
+
+
+class CostDistanceRequest(BaseModel):
+    """成本距离请求"""
+    sources: List[Dict[str, Any]] = Field(description="源点 GeoJSON features (Point)")
+    cost_features: Optional[List[Dict[str, Any]]] = Field(
+        default=None,
+        description="代价图层 features，属性 cost/friction/impedance",
+    )
+    resolution: int = Field(default=40, ge=10, le=200, description="栅格分辨率")
+    default_cost: float = Field(default=1.0, gt=0, description="默认摩擦代价")
+    bbox: Optional[List[float]] = Field(
+        default=None,
+        description="[minLon, minLat, maxLon, maxLat]",
+    )
+    destinations: Optional[List[Dict[str, Any]]] = Field(
+        default=None,
+        description="可选目标点 features，用于回溯最小代价路径",
+    )
+
+
+class VoronoiRequest(BaseModel):
+    """Voronoi 泰森多边形请求"""
+    points: List[Dict[str, Any]] = Field(description="生成点 GeoJSON features")
+    clip_boundary: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="可选裁剪边界 GeoJSON Polygon/MultiPolygon",
+    )
+    buffer_ratio: float = Field(
+        default=0.1,
+        ge=0,
+        le=1,
+        description="无裁剪边界时对外包矩形的外扩比例",
+    )
+
+
+class McdaCriterion(BaseModel):
+    """MCDA 准则"""
+    name: str = Field(description="准则字段名，对应 feature.properties 键")
+    weight: float = Field(default=1.0, description="权重（会自动归一化）")
+    direction: str = Field(
+        default="benefit",
+        description="benefit=越大越好, cost=越小越好",
+    )
+
+
+class McdaRequest(BaseModel):
+    """多准则决策分析请求"""
+    alternatives: List[Dict[str, Any]] = Field(
+        description="候选方案 GeoJSON features，properties 含各准则数值",
+    )
+    criteria: List[McdaCriterion] = Field(description="准则定义列表")
+    method: str = Field(
+        default="topsis",
+        description="weighted_sum | weighted_product | topsis",
+    )

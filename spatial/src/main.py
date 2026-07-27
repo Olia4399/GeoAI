@@ -40,7 +40,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="GeoAI Spatial Service",
-    description="空间能力服务层 — 缓冲区分析、距离计算、路径规划、空间叠加、密度分析、适宜性评价",
+    description="空间能力服务层 — 缓冲区、欧氏/网络/成本距离、叠加、核密度、Voronoi、适宜性、MCDA",
     version="0.1.0",
     lifespan=lifespan,
 )

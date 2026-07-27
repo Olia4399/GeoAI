@@ -1,4 +1,4 @@
-"""空间 Tool 定义 — 7 个 GIS 工具
+"""空间 Tool 定义 — GIS 工具集
 
 定义对接 spatial 服务的全部 Tool，注册到 ToolRegistry。
 每个 Tool 带 Pydantic args_schema 供 LangChain StructuredTool 正确映射参数。
@@ -61,6 +61,43 @@ class TemporalAnalysisInput(BaseModel):
     table: str = Field(default="poi", description="表名: poi")
     bbox: Optional[list[float]] = Field(default=None, description="空间范围")
     category: Optional[str] = Field(default=None, description="类别过滤")
+
+
+class CostDistanceAnalysisInput(BaseModel):
+    sources: list[dict] = Field(description="源点 GeoJSON features (Point)")
+    cost_features: Optional[list[dict]] = Field(
+        default=None,
+        description="代价图层 features，properties.cost / friction / impedance",
+    )
+    resolution: int = Field(default=40, description="栅格分辨率 10-200")
+    default_cost: float = Field(default=1.0, description="默认摩擦代价")
+    bbox: Optional[list[float]] = Field(default=None, description="[minLon,minLat,maxLon,maxLat]")
+    destinations: Optional[list[dict]] = Field(
+        default=None,
+        description="可选目标点 features，返回最小代价路径",
+    )
+
+
+class VoronoiAnalysisInput(BaseModel):
+    points: list[dict] = Field(description="生成点 GeoJSON features，至少 2 个")
+    clip_boundary: Optional[dict] = Field(
+        default=None,
+        description="可选裁剪边界 GeoJSON Polygon/MultiPolygon",
+    )
+    buffer_ratio: float = Field(default=0.1, description="无边界时外扩比例")
+
+
+class McdaAnalysisInput(BaseModel):
+    alternatives: list[dict] = Field(
+        description="候选方案 features，properties 含各准则数值字段",
+    )
+    criteria: list[dict] = Field(
+        description="[{'name':'pop','weight':0.4,'direction':'benefit'}, ...]",
+    )
+    method: str = Field(
+        default="topsis",
+        description="weighted_sum | weighted_product | topsis",
+    )
 
 
 # ============================================================
@@ -185,12 +222,54 @@ async def _temporal_analysis(table: str = "poi", bbox=None, category=None) -> di
     })
 
 
+async def _cost_distance_analysis(
+    sources: list[dict],
+    cost_features: Optional[list[dict]] = None,
+    resolution: int = 40,
+    default_cost: float = 1.0,
+    bbox: Optional[list[float]] = None,
+    destinations: Optional[list[dict]] = None,
+) -> dict:
+    return await _post("cost-distance", {
+        "sources": sources,
+        "cost_features": cost_features,
+        "resolution": resolution,
+        "default_cost": default_cost,
+        "bbox": bbox,
+        "destinations": destinations,
+    })
+
+
+async def _voronoi_analysis(
+    points: list[dict],
+    clip_boundary: Optional[dict] = None,
+    buffer_ratio: float = 0.1,
+) -> dict:
+    return await _post("voronoi", {
+        "points": points,
+        "clip_boundary": clip_boundary,
+        "buffer_ratio": buffer_ratio,
+    })
+
+
+async def _mcda_analysis(
+    alternatives: list[dict],
+    criteria: list[dict],
+    method: str = "topsis",
+) -> dict:
+    return await _post("mcda", {
+        "alternatives": alternatives,
+        "criteria": criteria,
+        "method": method,
+    })
+
+
 # ============================================================
 # Tool 注册
 # ============================================================
 
 def register_spatial_tools():
-    """注册全部 7 个空间分析 Tool"""
+    """注册全部空间分析 Tool"""
 
     tools = [
         Tool(
@@ -201,7 +280,7 @@ def register_spatial_tools():
         ),
         Tool(
             name="distance_analysis",
-            description="计算两个空间对象之间的距离。输入 source 和 target 两个 GeoJSON 几何对象，返回距离(米)。适用: 最近设施查询、通勤距离。",
+            description="计算两个空间对象之间的欧氏/直线距离。输入 source 和 target 两个地名或 GeoJSON，返回距离(米)。适用: 最近设施查询、直线通勤距离。",
             args_schema=DistanceAnalysisInput,
             handler=_distance_analysis,
         ),
@@ -231,7 +310,7 @@ def register_spatial_tools():
         ),
         Tool(
             name="suitability_analysis",
-            description="多因子加权叠加，计算综合适宜性评分。输入多个评分图层(带score的FeatureCollection)和权重字典，返回每个网格单元的综合得分 GeoJSON。这是选址分析的最终评分工具。",
+            description="适宜性评价(Suitability)：多因子空间加权叠加，计算网格综合适宜性评分。输入多个评分图层(带score的FeatureCollection)和权重字典。适用: 连续空间选址热力。",
             args_schema=SuitabilityAnalysisInput,
             handler=_suitability_analysis,
         ),
@@ -240,6 +319,24 @@ def register_spatial_tools():
             description="时空变化分析。对比 POI 数据的空间分布和类别构成，识别热点区域。用于了解某类设施的增长趋势和空间聚集特征。",
             args_schema=TemporalAnalysisInput,
             handler=_temporal_analysis,
+        ),
+        Tool(
+            name="cost_distance_analysis",
+            description="成本距离(Cost Distance)：在代价/摩擦栅格上从源点做累积最小代价传播。输入源点、可选代价图层(properties.cost)、可选目标点。返回 cost_distance 表面，若有目标点则含 least-cost paths。适用: 穿越阻力区可达性、消防/救援代价路径。",
+            args_schema=CostDistanceAnalysisInput,
+            handler=_cost_distance_analysis,
+        ),
+        Tool(
+            name="voronoi_analysis",
+            description="Voronoi 泰森多边形：根据生成点划分空间势力范围。输入至少2个点 features，可选裁剪边界。适用: 服务区划分、设施覆盖分区。",
+            args_schema=VoronoiAnalysisInput,
+            handler=_voronoi_analysis,
+        ),
+        Tool(
+            name="mcda_analysis",
+            description="多准则决策分析(MCDA)：对离散候选方案按多准则排序。支持 weighted_sum / weighted_product / topsis。criteria 含 name/weight/direction(benefit|cost)。与 suitability 不同：本工具对方案列表打分排名，不生成栅格。",
+            args_schema=McdaAnalysisInput,
+            handler=_mcda_analysis,
         ),
     ]
 
