@@ -30,7 +30,7 @@ class DistanceAnalysisInput(BaseModel):
 
 
 class SpatialQueryInput(BaseModel):
-    table: str = Field(description="表名: buildings | poi | roads")
+    table: str = Field(description="表名: buildings | poi | roads | districts | population_grid")
     bbox: Optional[list[float]] = Field(default=None, description="[minLon, minLat, maxLon, maxLat]")
     category: Optional[str] = Field(default=None, description="类别过滤，如 poi.category='coffee'")
 

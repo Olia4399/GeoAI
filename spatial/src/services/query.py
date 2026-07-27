@@ -21,7 +21,7 @@ def spatial_query(
     查询空间表的 GeoJSON 数据。
 
     Args:
-        table: 表名 (buildings / poi / roads)
+        table: 表名 (buildings / poi / roads / districts / population_grid)
         bbox: [minLon, minLat, maxLon, maxLat] 可选
         category: 类别过滤 (poi.category 或 buildings.usage)
         limit: 最大返回条数
@@ -67,7 +67,12 @@ def spatial_query(
             # category 可以是区名
             where_parts.append("name = %s")
             params.append(category)
-
+    elif table == "population_grid":
+        cols = "id, grid_id, pop_density, score, district, geom"
+        if category:
+            where_parts.append("district = %s")
+            params.append(category)
+    
     if bbox and len(bbox) == 4:
         where_parts.append(
             "geom && ST_MakeEnvelope(%s, %s, %s, %s, 4326)"

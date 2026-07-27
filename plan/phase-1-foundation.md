@@ -240,15 +240,14 @@ GeoAI/
 
 ## Phase 2 规划方向
 
+> 已由 Phase 2–5 承接，详见 `plan/phase-*.md`。
+
 1. 完善 6 个核心 GIS Tool（route, overlay, density, suitability）
 2. 多步 Agent 工作流（选址分析完整链路）
 3. PostGIS 集成（Agent 直接空间查询）
 4. 地图交互输入（框选区域 → Agent 分析）
 5. 3D Cesium 分析结果叠加
 
-## Phase 3 规划方向
+## Phase 5 (当前)
 
-1. 遥感 AI 识别模块（PyTorch + YOLO/SAM）
-2. 时空变化分析
-3. 智能报告生成（RAG + 空间知识库）
-4. 多 Agent 协作
+数据底座与知识库：见 [`phase-5-data-knowledge.md`](./phase-5-data-knowledge.md) 与 [`data-collection-runbook.md`](./data-collection-runbook.md)。
