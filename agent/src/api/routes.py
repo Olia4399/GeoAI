@@ -43,6 +43,41 @@ def _sse(payload: dict) -> str:
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
+def _classify_error(exc: Exception) -> dict:
+    """将异常分类为前端可识别的错误结构（error_type/title/hint），便于统一报错组件展示。"""
+    name = type(exc).__name__
+    msg = str(exc)
+    if "Connect" in name or "connect" in msg.lower():
+        return {
+            "error_type": "spatial",
+            "title": "空间服务连接失败",
+            "hint": "确认 spatial 服务 (8002) 已启动且端口正确",
+        }
+    if "Authentication" in name or "401" in msg or "api key" in msg.lower() or "unauthorized" in msg.lower():
+        return {
+            "error_type": "llm",
+            "title": "大模型认证失败",
+            "hint": "检查 agent/.env 的 OPENAI_API_KEY 是否有效",
+        }
+    if "timeout" in msg.lower() or "Timeout" in name:
+        return {
+            "error_type": "timeout",
+            "title": "大模型请求超时",
+            "hint": "LLM 调用超过 120 秒（已自动重试 1 次）仍失败；检查网络或 LLM 服务状态，稍后重试，或更换 agent/.env 中的 LLM_MODEL",
+        }
+    if "RateLimit" in name or "429" in msg:
+        return {
+            "error_type": "llm",
+            "title": "大模型限流",
+            "hint": "请求过于频繁或额度不足，稍后重试",
+        }
+    return {
+        "error_type": "sse",
+        "title": "分析执行出错",
+        "hint": "查看 agent 服务 (8001) 控制台日志（已打印 traceback）",
+    }
+
+
 @router.post("/query", response_model=AgentQueryResponse)
 async def agent_query(req: AgentQueryRequest):
     """Spatial Agent 核心接口: 自然语言 → 分析结果 + 报告 + 自动保存"""
@@ -115,8 +150,10 @@ async def agent_query_stream(req: AgentQueryRequest):
     async def event_stream():
         t0 = time.time()
         timings: dict[str, float] = {}
+        phase = "intent"
         try:
             # 1. 意图解析
+            phase = "intent"
             yield _sse({
                 "type": "phase", "phase": "intent", "status": "running",
                 "elapsed_s": 0,
@@ -151,6 +188,7 @@ async def agent_query_stream(req: AgentQueryRequest):
                 return
 
             # 2. 规划 + 执行（逐步推送，报告生成前即可看到心流）
+            phase = "planning"
             yield _sse({
                 "type": "phase", "phase": "planning", "status": "running",
                 "elapsed_s": round(time.time() - t0, 3),
@@ -185,6 +223,7 @@ async def agent_query_stream(req: AgentQueryRequest):
             })
 
             # 3. 报告（步骤已全部前置推完）
+            phase = "report"
             yield _sse({
                 "type": "phase", "phase": "report", "status": "running",
                 "elapsed_s": round(time.time() - t0, 3),
@@ -223,10 +262,13 @@ async def agent_query_stream(req: AgentQueryRequest):
 
         except Exception as e:
             traceback.print_exc()
+            print(f"[query/stream] ERROR phase={phase} exc={type(e).__name__}: {e}")
             yield _sse({
                 "type": "error",
                 "detail": str(e),
+                "phase": phase,
                 "elapsed_s": round(time.time() - t0, 3),
+                **_classify_error(e),
             })
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")

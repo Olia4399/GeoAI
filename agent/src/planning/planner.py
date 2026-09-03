@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from collections.abc import AsyncIterator
 from typing import Any
@@ -42,9 +43,13 @@ def _parse_messages(messages: list[Any]) -> tuple[list[dict], list[dict]]:
                         "kind": "tool_call",
                     })
             elif msg.content:
+                content = str(msg.content)
+                # 最终总结与报告正文之间以 --- 分隔：报告 Markdown 不进入步骤内容，
+                # 只保留分隔线前的总结（如“分析完成。以下是…报告。”）
+                content = re.split(r"\n\s*[-*]{3,}", content)[0].strip()
                 steps.append({
                     "action": "reasoning",
-                    "content": str(msg.content)[:500],
+                    "content": content[:500],
                     "kind": "reasoning",
                 })
 
@@ -100,11 +105,14 @@ class SpatialPlanner:
 - 坐标用括号表示，如 (116.458, 39.908)，不要加反引号"""
 
     def __init__(self):
+        # timeout=120s + 1 次自动重试：避免默认 600s 超时导致请求长时间挂起
         self.llm = ChatOpenAI(
             model=os.getenv("LLM_MODEL", "gpt-4o"),
             api_key=os.getenv("OPENAI_API_KEY", ""),
             base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
             temperature=0,
+            timeout=120,
+            max_retries=1,
         )
 
         # 构建 LangChain Tool 列表

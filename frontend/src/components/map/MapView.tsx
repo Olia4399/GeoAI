@@ -3,7 +3,7 @@ import mapboxgl from "mapbox-gl";
 import { useAppStore } from "../../store";
 import type { GeoJSONFeatureCollection } from "../../types";
 import { DrawTool } from "./DrawTool";
-import { LayerPanel } from "./LayerPanel";
+import { LayerPanel, LAYERS } from "./LayerPanel";
 import { useState } from "react";
 
 const MAPBOX_TOKEN =
@@ -36,12 +36,33 @@ export function MapView() {
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const layersRef = useRef<string[]>([]);
   const [layerPanelVisible, setLayerPanelVisible] = useState(false);
+  // 地图实例必须用 state 持有：ref 更新不触发渲染，DrawTool 会一直拿到过期的 null
+  const [mapInstance, setMapInstance] = useState<mapboxgl.Map | null>(null);
 
   const setMapBounds = useAppStore((s) => s.setMapBounds);
   const agentResponse = useAppStore((s) => s.agentResponse);
   const drawGeometry = useAppStore((s) => s.drawGeometry);
   const layerVisibility = useAppStore((s) => s.layerVisibility);
   const setLayerVisibility = useAppStore((s) => s.setLayerVisibility);
+
+  // 图层显隐真正落到 Mapbox style 图层上（按 id 前缀匹配，如 road-*、agent-result-*）
+  const applyVisibilityRef = useRef<() => void>(() => {});
+  applyVisibilityRef.current = () => {
+    const map = mapRef.current;
+    if (!map || !map.isStyleLoaded()) return;
+    LAYERS.forEach((layer) => {
+      const prefix = layer.mapPrefix;
+      if (!prefix || layer.disabled) return;
+      const visible = layerVisibility[layer.id] !== false;
+      (map.getStyle().layers || [])
+        .filter((l) => l.id.startsWith(prefix))
+        .forEach((l) => map.setLayoutProperty(l.id, "visibility", visible ? "visible" : "none"));
+    });
+  };
+
+  useEffect(() => {
+    applyVisibilityRef.current();
+  }, [layerVisibility]);
 
   // 初始化地图
   useEffect(() => {
@@ -57,20 +78,25 @@ export function MapView() {
     map.addControl(new mapboxgl.NavigationControl(), "top-right");
 
     map.on("load", () => {
-      const bounds = map.getBounds();
+      // mapbox-gl 3.x 类型中 getBounds 可空（globe 投影），load/moveend 时必有值
+      const bounds = map.getBounds()!;
       setMapBounds([bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()]);
+      // style 就绪后应用一次图层显隐
+      applyVisibilityRef.current();
     });
 
     map.on("moveend", () => {
-      const bounds = map.getBounds();
+      const bounds = map.getBounds()!;
       setMapBounds([bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()]);
     });
 
     mapRef.current = map;
+    setMapInstance(map);
 
     return () => {
       map.remove();
       mapRef.current = null;
+      setMapInstance(null);
     };
   }, []);
 
@@ -152,6 +178,8 @@ export function MapView() {
       }
 
       layersRef.current.push(layerId);
+      // 新结果图层立即套用当前显隐设置
+      applyVisibilityRef.current();
 
       // 飞到数据范围
       try {
@@ -180,7 +208,7 @@ export function MapView() {
   return (
     <div style={{ width: "100%", height: "100%", position: "relative" }}>
       <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
-      <DrawTool map={mapRef.current} />
+      <DrawTool map={mapInstance} />
       <LayerPanel
         visible={layerPanelVisible}
         onToggle={() => setLayerPanelVisible(!layerPanelVisible)}

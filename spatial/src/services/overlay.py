@@ -27,9 +27,16 @@ def compute_overlay(
     if operation not in valid_ops:
         raise ValueError(f"Operation '{operation}' not supported. Choose: {valid_ops}")
 
+    # 提前提取 features，空数组时直接返回，避免 GeoPandas from_features 空列表报错
+    features_a = layer_a.get("features", []) if isinstance(layer_a, dict) else []
+    features_b = layer_b.get("features", []) if isinstance(layer_b, dict) else []
+
+    if not features_a or not features_b:
+        return {"type": "FeatureCollection", "features": []}
+
     # GeoJSON → GeoDataFrame
-    gdf_a = GeoDataFrame.from_features(layer_a.get("features", []), crs="EPSG:4326")
-    gdf_b = GeoDataFrame.from_features(layer_b.get("features", []), crs="EPSG:4326")
+    gdf_a = GeoDataFrame.from_features(features_a, crs="EPSG:4326")
+    gdf_b = GeoDataFrame.from_features(features_b, crs="EPSG:4326")
 
     if gdf_a.empty or gdf_b.empty:
         return {"type": "FeatureCollection", "features": []}

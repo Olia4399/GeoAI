@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { AgentResponse, GeoJSONFeatureCollection, MapMode, DrawMode } from "../types";
+import type { AgentError, AgentResponse, GeoJSONFeatureCollection, MapMode, DrawMode } from "../types";
 import { agentApi } from "../services/agent";
 
 interface StreamProgress {
@@ -30,7 +30,7 @@ interface AppState {
   query: string;
   loading: boolean;
   agentResponse: AgentResponse | null;
-  error: string | null;
+  error: AgentError | null;
   streamProgress: StreamProgress | null;
   streamAbort: AbortController | null;
 
@@ -53,7 +53,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   drawGeometry: null,
   mapMode: "2d",
   drawMode: null,
-  layerVisibility: { poi: true, roads: true, buildings: true, districts: true, analysis: true, buffer: true },
+  layerVisibility: { poi: true, roads: true, buildings: true, districts: true, analysis: true, draw: true },
   query: "",
   loading: false,
   agentResponse: null,
@@ -138,16 +138,42 @@ export const useAppStore = create<AppState>((set, get) => ({
           };
           set({ agentResponse: response, loading: false, streamProgress: null });
         } else if (type === "error") {
-          set({ error: data.detail || String(data), loading: false, streamProgress: null });
+          // 后端 SSE error 事件：规范化 detail，透传后端分类的 title/hint
+          set({
+            error: {
+              type: data.error_type || "sse",
+              title: data.title || "分析执行失败",
+              detail:
+                (data.phase ? `[失败阶段: ${data.phase}] ` : "") +
+                (typeof data.detail === "string"
+                  ? data.detail
+                  : JSON.stringify(data.detail ?? data)),
+              hint: data.hint,
+            },
+            loading: false,
+            streamProgress: null,
+          });
         }
       },
       (err) => {
         set({ error: err, loading: false, streamProgress: null });
       },
       () => {
-        // stream ended — if still loading (no "done" event), mark done
+        // 流已结束但未收到 done 事件：视为异常中断，给出可见错误而非静默结束
         set((s) => {
-          if (s.loading) return { loading: false };
+          if (s.loading) {
+            return {
+              loading: false,
+              error: s.agentResponse
+                ? null
+                : {
+                    type: "sse",
+                    title: "响应流意外中断",
+                    detail: "连接已结束，但未收到完成（done）事件",
+                    hint: "可能后端异常或网络中断，查看 agent 服务 (8001) 控制台日志后重试",
+                  },
+            };
+          }
           return {};
         });
       }

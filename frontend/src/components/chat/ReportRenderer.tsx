@@ -112,27 +112,41 @@ export const markdownComponents: any = {
       </p>
     );
   },
-  code: ({ children, inline }: any) => {
-    if (inline) {
+  // 注意：react-markdown v10 不再传 inline prop（实测行内 code 只有 {node, children}）。
+  // 用 className（language-xxx）或内容含换行（围栏代码块文本末尾必带 \n）区分块级与行内，
+  // 否则行内代码会全部误渲染成深色块，把列表文字切成"一词一框"。
+  code: ({ className, children }: any) => {
+    const isBlock =
+      Boolean(className) || (typeof children === "string" && children.includes("\n"));
+    if (isBlock) {
+      // 块级代码的深色盒样式统一由 pre 承载，这里只保留等宽字体
       return (
         <code style={{
-          background: COLORS.code, padding: "1px 5px", borderRadius: 3,
-          fontSize: 12, fontFamily: "Consolas, Monaco, monospace", color: "#d32f2f",
+          background: "transparent", color: "inherit",
+          fontFamily: "Consolas, Monaco, monospace", fontSize: 12,
         }}>
           {children}
         </code>
       );
     }
     return (
-      <pre style={{
-        background: "#263238", color: "#aed581", padding: "10px 14px",
-        borderRadius: 6, fontSize: 12, fontFamily: "Consolas, Monaco, monospace",
-        overflow: "auto", margin: "8px 0",
+      <code style={{
+        background: COLORS.code, padding: "1px 5px", borderRadius: 3,
+        fontSize: 12, fontFamily: "Consolas, Monaco, monospace", color: "#d32f2f",
       }}>
-        <code>{children}</code>
-      </pre>
+        {children}
+      </code>
     );
   },
+  pre: ({ children }: any) => (
+    <pre style={{
+      background: "#263238", color: "#aed581", padding: "10px 14px",
+      borderRadius: 6, fontSize: 12, fontFamily: "Consolas, Monaco, monospace",
+      overflow: "auto", margin: "8px 0", lineHeight: 1.6,
+    }}>
+      {children}
+    </pre>
+  ),
   ul: ({ children }: any) => (
     <ul style={{ margin: "4px 0", paddingLeft: 20, color: COLORS.text, fontSize: 13, lineHeight: 1.8 }}>
       {children}

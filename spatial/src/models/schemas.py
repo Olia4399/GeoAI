@@ -1,6 +1,6 @@
 """Pydantic 请求/响应模型"""
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -95,7 +95,9 @@ class OverlayRequest(BaseModel):
     """空间叠加请求"""
     layer_a: Dict[str, Any] = Field(description="GeoJSON FeatureCollection A")
     layer_b: Dict[str, Any] = Field(description="GeoJSON FeatureCollection B")
-    operation: str = Field(default="intersection", description="intersection | union | difference")
+    operation: Literal["intersection", "union", "difference"] = Field(
+        default="intersection", description="intersection | union | difference"
+    )
 
 
 class DensityRequest(BaseModel):

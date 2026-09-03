@@ -30,7 +30,7 @@ def spatial_query(
         GeoJSON FeatureCollection
     """
     # 表名白名单防注入
-    allowed_tables = {"buildings", "poi", "roads", "districts"}
+    allowed_tables = {"buildings", "poi", "roads", "districts", "population_grid"}
     if table not in allowed_tables:
         raise ValueError(f"Table '{table}' not allowed. Choose from: {allowed_tables}")
 

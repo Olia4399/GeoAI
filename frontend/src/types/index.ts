@@ -1,10 +1,11 @@
 /** 共享类型定义 */
 
-// GeoJSON 类型 (简化)
-export interface GeoJSONGeometry {
-  type: string;
-  coordinates: number[] | number[][] | number[][][];
-}
+// GeoJSON 类型 (简化)：按几何类型判别联合，`geom.type === "Point"` 等
+// 运行时类型守卫即可让 TS 自动收窄 coordinates 的具体形状
+export type GeoJSONGeometry =
+  | { type: "Point"; coordinates: number[] }
+  | { type: "LineString"; coordinates: number[][] }
+  | { type: "Polygon"; coordinates: number[][][] };
 
 export interface GeoJSONFeature {
   type: "Feature";
@@ -51,6 +52,19 @@ export interface AgentResponse {
     report_s?: number;
     total_s?: number;
   };
+}
+
+// 统一错误结构：分类 + 友好标题 + 排查提示
+export interface AgentError {
+  type: "network" | "http" | "sse" | "timeout" | "llm" | "spatial" | "unknown";
+  /** 用户可读的标题 */
+  title: string;
+  /** 技术细节（后端 detail、异常消息等） */
+  detail?: string;
+  /** 排查提示（可操作建议） */
+  hint?: string;
+  /** HTTP 状态码 */
+  status?: number;
 }
 
 // 地图模式

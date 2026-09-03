@@ -34,6 +34,7 @@ class SpatialQueryInput(BaseModel):
     table: str = Field(description="表名: buildings | poi | roads | districts | population_grid")
     bbox: Optional[list[float]] = Field(default=None, description="[minLon, minLat, maxLon, maxLat]")
     category: Optional[str] = Field(default=None, description="类别过滤，如 poi.category='coffee'")
+    limit: int = Field(default=50, ge=1, le=1000, description="最大返回条数")
 
 
 class RouteAnalysisInput(BaseModel):
@@ -182,12 +183,12 @@ async def _distance_analysis(source: str, target: str) -> dict:
     return await _post("distance", {"source": src_geom, "target": tgt_geom})
 
 
-async def _spatial_query(table: str, bbox=None, category=None) -> dict:
+async def _spatial_query(table: str, bbox=None, category=None, limit: int = 50) -> dict:
     return await _post("query", {
         "table": table,
         "bbox": bbox,
         "category": category,
-        "limit": 50,  # 限制返回量，加速 LLM 处理
+        "limit": limit,
     })
 
 

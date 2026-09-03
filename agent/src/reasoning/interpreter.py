@@ -34,11 +34,14 @@ class ResultInterpreter:
     """LLM 结果解释器 (RAG 增强)"""
 
     def __init__(self):
+        # timeout=120s + 1 次自动重试：避免默认 600s 超时导致请求长时间挂起
         self.llm = ChatOpenAI(
             model=os.getenv("LLM_MODEL", "gpt-4o"),
             api_key=os.getenv("OPENAI_API_KEY", ""),
             base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
             temperature=0.3,
+            timeout=120,
+            max_retries=1,
         )
 
     @staticmethod

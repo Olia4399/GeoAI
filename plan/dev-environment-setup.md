@@ -1,26 +1,26 @@
 # GeoAI 本机开发环境补齐与启动指南
 
-> 目标机器：Windows 10/11（当前仓库路径 `D:\pack\GeoAI\GeoAI`）  
-> 日期：2026-07-27  
+> 目标机器：Windows 10/11（当前仓库路径 `D:\pack\GeoAI\GeoAI`）
+> 日期：2026-07-27
 > 关联：[`phase-1-foundation.md`](./phase-1-foundation.md)、[`README.md`](../README.md)
 
 ---
 
 ## 1. 本机现状快照（2026-07-27 实测）
 
-| 组件 | 要求 | 本机状态 | 动作 |
-|------|------|----------|------|
-| Git | 任意近期版 | ✅ `2.53.0` | 无需安装 |
-| Python | ≥ 3.12 | ✅ `3.12.10` | 无需安装 |
-| Node.js | ≥ 20 | ✅ `v20.19.0` | 无需安装 |
-| pnpm | 任意 8/9+ | ✅ `9.12.0` | 无需安装 |
-| **uv** | 最新稳定版 | ❌ 未安装 | **必须安装** |
-| **Docker Desktop** | 含 Compose v2 | ❌ 未安装 | **必须安装**（PostGIS 依赖） |
-| WSL2 | Docker Desktop 推荐后端 | ❌ 未就绪 | 安装 Docker 时一并启用 |
-| `agent/.env` | LLM Key | ❌ 缺失 | **必须创建** |
-| `frontend/.env.local` | Mapbox / Cesium | ❌ 缺失 | **必须创建** |
-| `docker/.env` | 一键编排用 | ❌ 缺失 | Docker 全量启动时需要 |
-| `docker/.env.example` | 模板 | ❌ 仓库中缺失 | 见下文模板（已补齐） |
+| 组件                  | 要求                    | 本机状态      | 动作                         |
+| --------------------- | ----------------------- | ------------- | ---------------------------- |
+| Git                   | 任意近期版              | ✅`2.53.0`    | 无需安装                     |
+| Python                | ≥ 3.12                  | ✅`3.12.10`   | 无需安装                     |
+| Node.js               | ≥ 20                    | ✅`v20.19.0`  | 无需安装                     |
+| pnpm                  | 任意 8/9+               | ✅`9.12.0`    | 无需安装                     |
+| **uv**                | 最新稳定版              | ❌ 未安装     | **必须安装**                 |
+| **Docker Desktop**    | 含 Compose v2           | ❌ 未安装     | **必须安装**（PostGIS 依赖） |
+| WSL2                  | Docker Desktop 推荐后端 | ❌ 未就绪     | 安装 Docker 时一并启用       |
+| `agent/.env`          | LLM Key                 | ❌ 缺失       | **必须创建**                 |
+| `frontend/.env.local` | Mapbox / Cesium         | ❌ 缺失       | **必须创建**                 |
+| `docker/.env`         | 一键编排用              | ❌ 缺失       | Docker 全量启动时需要        |
+| `docker/.env.example` | 模板                    | ❌ 仓库中缺失 | 见下文模板（已补齐）         |
 
 **结论**：语言运行时基本齐全；要跑通闭环，还需补 **Docker + uv + 3 份密钥配置**。
 
@@ -74,11 +74,11 @@ wsl --install -d Ubuntu
 
 ### 2.2 第三方账号 / API Key
 
-| Key | 用途 | 申请地址 | 落盘位置 |
-|-----|------|----------|----------|
-| DeepSeek / OpenAI 兼容 Key | Agent 意图解析、规划、报告 | [DeepSeek 开放平台](https://platform.deepseek.com/) 或其他兼容端点 | `agent/.env` |
-| Mapbox Access Token | 2D 底图 | [Mapbox Account](https://account.mapbox.com/) | `frontend/.env.local` |
-| Cesium Ion Token | 3D 地形（可空，无 Token 时 3D 降级） | [Cesium Ion](https://ion.cesium.com/) | `frontend/.env.local` |
+| Key                        | 用途                                 | 申请地址                                                           | 落盘位置              |
+| -------------------------- | ------------------------------------ | ------------------------------------------------------------------ | --------------------- |
+| DeepSeek / OpenAI 兼容 Key | Agent 意图解析、规划、报告           | [DeepSeek 开放平台](https://platform.deepseek.com/) 或其他兼容端点 | `agent/.env`          |
+| Mapbox Access Token        | 2D 底图                              | [Mapbox Account](https://account.mapbox.com/)                      | `frontend/.env.local` |
+| Cesium Ion Token           | 3D 地形（可空，无 Token 时 3D 降级） | [Cesium Ion](https://ion.cesium.com/)                              | `frontend/.env.local` |
 
 ### 2.3 配置文件模板
 
@@ -204,7 +204,7 @@ cd D:\pack\GeoAI\GeoAI\frontend
 pnpm dev
 ```
 
-浏览器打开：http://localhost:5173  
+浏览器打开：http://localhost:5173
 Vite 已代理 `/api/agent` → `8001`、`/api/spatial` → `8002`。
 
 ### 启动依赖关系
@@ -238,24 +238,24 @@ Copy-Item .env.example .env
 docker compose up -d --build
 ```
 
-| 服务 | URL |
-|------|-----|
-| 前端 | http://localhost:5173 |
-| Agent | http://localhost:8001 |
+| 服务    | URL                   |
+| ------- | --------------------- |
+| 前端    | http://localhost:5173 |
+| Agent   | http://localhost:8001 |
 | Spatial | http://localhost:8002 |
-| PostGIS | localhost:5432 |
+| PostGIS | localhost:5432        |
 
 ---
 
 ## 5. 验收清单
 
-| # | 检查项 | 期望 |
-|---|--------|------|
-| 1 | `docker exec geoai-postgis psql ... PostGIS_Version()` | 有版本号 |
-| 2 | `GET :8002/api/health` | DB 连通、healthy |
-| 3 | `GET :8001/api/agent/health` | healthy，且能读到 LLM 配置 |
-| 4 | 浏览器 :5173 | 地图底图可见（Mapbox Token 有效） |
-| 5 | 聊天：「计算北京国贸周边 500 米缓冲区」 | 约 15–30s 返回报告 + 地图图层 |
+| #   | 检查项                                                 | 期望                              |
+| --- | ------------------------------------------------------ | --------------------------------- |
+| 1   | `docker exec geoai-postgis psql ... PostGIS_Version()` | 有版本号                          |
+| 2   | `GET :8002/api/health`                                 | DB 连通、healthy                  |
+| 3   | `GET :8001/api/agent/health`                           | healthy，且能读到 LLM 配置        |
+| 4   | 浏览器 :5173                                           | 地图底图可见（Mapbox Token 有效） |
+| 5   | 聊天：「计算北京国贸周边 500 米缓冲区」                | 约 15–30s 返回报告 + 地图图层     |
 
 最小 buffer 直连自测（不经 LLM）：
 
@@ -288,16 +288,16 @@ VITE_CESIUM_ION_TOKEN=
 
 ## 7. Windows 常见问题
 
-| 现象 | 处理 |
-|------|------|
-| `docker` / `uv` 找不到 | 安装后重开终端；检查 PATH；Docker 需 Desktop 引擎已启动 |
-| 5432 端口占用 | 停掉本机其它 PostgreSQL，或改 compose 端口映射 |
-| `uv sync` 慢 / 失败 | 配置镜像（如清华 / Astral 文档）；代理环境设 `HTTP_PROXY` |
-| agent 首次启动很慢 | `sentence-transformers` / Chroma 首次下载模型，属正常 |
-| Mapbox 灰屏 | Token 无效或未写入 `frontend/.env.local`，改后需重启 `pnpm dev` |
-| Agent 报 API Key | 检查 `agent/.env` 是否被加载（文件在 `agent/` 根目录，非 `src/`） |
-| OSM 拉数失败 | 见 [`data-collection-runbook.md`](./data-collection-runbook.md)，Overpass 需代理或缩小 bbox |
-| PowerShell 下 `curl` | 实际是 `Invoke-WebRequest` 别名；可用 `curl.exe` 或 `Invoke-RestMethod` |
+| 现象                   | 处理                                                                                       |
+| ---------------------- | ------------------------------------------------------------------------------------------ |
+| `docker` / `uv` 找不到 | 安装后重开终端；检查 PATH；Docker 需 Desktop 引擎已启动                                    |
+| 5432 端口占用          | 停掉本机其它 PostgreSQL，或改 compose 端口映射                                             |
+| `uv sync` 慢 / 失败    | 配置镜像（如清华 / Astral 文档）；代理环境设`HTTP_PROXY`                                   |
+| agent 首次启动很慢     | `sentence-transformers` / Chroma 首次下载模型，属正常                                      |
+| Mapbox 灰屏            | Token 无效或未写入`frontend/.env.local`，改后需重启 `pnpm dev`                             |
+| Agent 报 API Key       | 检查`agent/.env` 是否被加载（文件在 `agent/` 根目录，非 `src/`）                           |
+| OSM 拉数失败           | 见[`data-collection-runbook.md`](./data-collection-runbook.md)，Overpass 需代理或缩小 bbox |
+| PowerShell 下`curl`    | 实际是`Invoke-WebRequest` 别名；可用 `curl.exe` 或 `Invoke-RestMethod`                     |
 
 ---
 
@@ -315,5 +315,5 @@ VITE_CESIUM_ION_TOKEN=
 
 ## 9. 与旧文档路径差异
 
-[`phase-1-foundation.md`](./phase-1-foundation.md) 中示例路径仍为 `d:/study/GeoAI/...`。  
+[`phase-1-foundation.md`](./phase-1-foundation.md) 中示例路径仍为 `d:/study/GeoAI/...`。
 **本机请统一使用**：`D:\pack\GeoAI\GeoAI\...`。

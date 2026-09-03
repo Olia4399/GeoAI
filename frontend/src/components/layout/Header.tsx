@@ -40,7 +40,7 @@ export function Header() {
     <div style={HEADER_STYLE.bar}>
       <span style={HEADER_STYLE.title}>🌏 GeoAI 城市空间智能分析平台</span>
       <span style={HEADER_STYLE.spacer} />
-      <span style={{ fontSize: 12, opacity: 0.7 }}>Phase 1 — Foundation</span>
+      <span style={{ fontSize: 12, opacity: 0.7 }}></span>
       <button
         style={{
           ...HEADER_STYLE.modeBtn,
