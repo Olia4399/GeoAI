@@ -18,32 +18,73 @@ export function toAgentError(err: unknown, status?: number): AgentError {
 
   if (status) {
     if (status === 401 || status === 403) {
-      return { type: "llm", title: "大模型认证失败", detail: msg, status, hint: "检查 agent/.env 的 OPENAI_API_KEY 是否有效" };
+      return {
+        type: "llm",
+        title: "大模型认证失败",
+        detail: msg,
+        status,
+        hint: "检查 agent/.env 的 OPENAI_API_KEY 是否有效",
+      };
     }
     if (status === 422) {
-      return { type: "http", title: "请求参数校验失败", detail: msg, status, hint: "检查请求体是否符合后端 Pydantic 模型" };
+      return {
+        type: "http",
+        title: "请求参数校验失败",
+        detail: msg,
+        status,
+        hint: "检查请求体是否符合后端 Pydantic 模型",
+      };
     }
     if (status >= 500) {
-      return { type: "http", title: `服务端处理失败 (${status})`, detail: msg, status, hint: "查看 agent 服务 (8001) 控制台日志（已打印 traceback）" };
+      return {
+        type: "http",
+        title: `服务端处理失败 (${status})`,
+        detail: msg,
+        status,
+        hint: "查看 agent 服务 (8001) 控制台日志（已打印 traceback）",
+      };
     }
     return { type: "http", title: `请求失败 (${status})`, detail: msg, status };
   }
 
   if (/Failed to fetch|NetworkError|ERR_/i.test(msg)) {
-    return { type: "network", title: "无法连接后端服务", detail: msg, hint: "确认 agent (8001) 与 spatial (8002) 服务已启动，前端代理正常" };
+    return {
+      type: "network",
+      title: "无法连接后端服务",
+      detail: msg,
+      hint: "确认 agent (8001) 与 spatial (8002) 服务已启动，前端代理正常",
+    };
   }
   if (/timeout|timed out/i.test(msg)) {
-    return { type: "timeout", title: "请求超时", detail: msg, hint: "LLM 响应较慢或网络不稳定，稍后重试" };
+    return {
+      type: "timeout",
+      title: "请求超时",
+      detail: msg,
+      hint: "LLM 响应较慢或网络不稳定，稍后重试",
+    };
   }
   if (/api key|401|unauthorized|authentication/i.test(msg)) {
-    return { type: "llm", title: "大模型认证失败", detail: msg, hint: "检查 agent/.env 的 OPENAI_API_KEY / OPENAI_BASE_URL" };
+    return {
+      type: "llm",
+      title: "大模型认证失败",
+      detail: msg,
+      hint: "检查 agent/.env 的 OPENAI_API_KEY / OPENAI_BASE_URL",
+    };
   }
-  return { type: "unknown", title: "请求出错", detail: msg, hint: "查看浏览器 Network 面板与后端日志定位" };
+  return {
+    type: "unknown",
+    title: "请求出错",
+    detail: msg,
+    hint: "查看浏览器 Network 面板与后端日志定位",
+  };
 }
 
 export const agentApi = {
   /** 普通查询 */
-  async query(text: string, context?: Record<string, unknown>): Promise<AgentResponse> {
+  async query(
+    text: string,
+    context?: Record<string, unknown>,
+  ): Promise<AgentResponse> {
     const { data } = await agentClient.post<AgentResponse>("/query", {
       query: text,
       context: context || null,
@@ -55,6 +96,7 @@ export const agentApi = {
   queryStream(
     text: string,
     context: Record<string, unknown> | undefined,
+    // 注册三个回调
     onEvent: (event: { type: string; data: any }) => void,
     onError: (err: AgentError) => void,
     onDone: () => void,
@@ -62,16 +104,19 @@ export const agentApi = {
     const controller = new AbortController();
     // 看门狗：后端 LLM 调用挂死时主动中断并报错（后端自身已有 120s 超时，此处兜底）
     let timedOut = false;
-    const timeoutId = window.setTimeout(() => {
-      timedOut = true;
-      controller.abort();
-      onError({
-        type: "timeout",
-        title: "请求超时（前端兜底）",
-        detail: "等待超过 10 分钟仍未完成，已主动中断",
-        hint: "后端 LLM 调用可能挂起，查看 agent 服务 (8001) 日志；稍后重试",
-      });
-    }, 10 * 60 * 1000);
+    const timeoutId = window.setTimeout(
+      () => {
+        timedOut = true;
+        controller.abort();
+        onError({
+          type: "timeout",
+          title: "请求超时（前端兜底）",
+          detail: "等待超过 10 分钟仍未完成，已主动中断",
+          hint: "后端 LLM 调用可能挂起，查看 agent 服务 (8001) 日志；稍后重试",
+        });
+      },
+      10 * 60 * 1000,
+    );
 
     fetch("/api/agent/query/stream", {
       method: "POST",
@@ -93,7 +138,9 @@ export const agentApi = {
                   ? parsed.detail
                   : JSON.stringify(parsed.detail);
             }
-          } catch { /* 保留原始文本 */ }
+          } catch {
+            /* 保留原始文本 */
+          }
           onError(toAgentError(detail, response.status));
           return;
         }
@@ -109,23 +156,25 @@ export const agentApi = {
           return;
         }
 
-        const decoder = new TextDecoder();
-        let buffer = "";
+        const decoder = new TextDecoder(); // 解决汉字字节被撕开的半个字的乱码问题
+        let buffer = ""; // 解决一行文字被切开不完整的半行问题
 
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
 
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split("\n");
-          buffer = lines.pop() || "";
+          buffer += decoder.decode(value, { stream: true }); // 接上上次SSE的尾巴
+          const lines = buffer.split("\n"); // 切出完整行
+          buffer = lines.pop() || ""; // 无 \n 结尾的最后一行 = 新尾巴，留到下一轮开头
 
           for (const line of lines) {
             if (line.startsWith("data: ")) {
               try {
                 const parsed = JSON.parse(line.slice(6));
                 onEvent({ type: parsed.type || "unknown", data: parsed });
-              } catch { /* skip malformed */ }
+              } catch {
+                /* skip malformed */
+              }
             }
           }
         }
@@ -148,8 +197,13 @@ export const agentApi = {
   },
 
   /** 历史列表 */
-  async history(limit = 20, offset = 0): Promise<{ total: number; items: any[] }> {
-    const { data } = await agentClient.get("/history", { params: { limit, offset } });
+  async history(
+    limit = 20,
+    offset = 0,
+  ): Promise<{ total: number; items: any[] }> {
+    const { data } = await agentClient.get("/history", {
+      params: { limit, offset },
+    });
     return data;
   },
 

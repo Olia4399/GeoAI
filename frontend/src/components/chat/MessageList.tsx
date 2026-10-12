@@ -16,10 +16,13 @@ function truncateStep(text: string): string {
   const cleaned = parts[0]
     .replace(/^#{1,4}\s+.*$/gm, "")
     .replace(/\|.*\|/g, "")
+    // 剥离 Markdown 标记（**粗体**、`代码`、~~删除线~~）：步骤行是纯文本渲染，直接显示星号/反引号很突兀
+    .replace(/\*\*|__|`+|~~/g, "")
     .replace(/\n+/g, " ")
     .trim();
   if (parts.length > 1) return cleaned || "分析完成";
-  const match = cleaned.match(/^(.+?[。.！!？?])/);
+  // 句界只认中文句号与中英文问号/叹号——ASCII 句点会把小数坐标 "116.458" 误判为句尾而腰斩截断
+  const match = cleaned.match(/^(.+?[。！!？?])/);
   return match ? match[1] : cleaned.slice(0, 120);
 }
 
@@ -30,9 +33,15 @@ function fmtSec(s?: number): string {
 
 function stepTitle(s: any): string {
   if (s.kind === "tool_result" || s.action === "tool_result") {
+    // 历史数据兼容：旧格式的独立"返回"行
     return s.content || `${s.tool || "tool"} 返回`;
   }
-  if (s.tool) return `${s.tool} — 调用`;
+  if (s.tool) {
+    // 合并后的工具步骤：一步展示"调用"，失败/要素数附着在同一行
+    const status = s.failed ? "失败" : "调用";
+    const suffix = s.feature_count ? ` · ${s.feature_count} 要素` : "";
+    return `${s.tool} — ${status}${suffix}`;
+  }
   if (s.action === "reasoning")
     return truncateStep(String(s.content || "推理"));
   return truncateStep(String(s.content || s.action || ""));
@@ -203,9 +212,12 @@ export function MessageList() {
                   </span>
                   <span
                     style={{
+                      flex: 1,
+                      minWidth: 0,
+                      display: "-webkit-box",
+                      WebkitLineClamp: 2,
+                      WebkitBoxOrient: "vertical",
                       overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
                     }}
                   >
                     {stepTitle(s.data)}
@@ -334,10 +346,15 @@ export function MessageList() {
                         {i + 1}
                       </span>
                       <span style={{ flex: 1, minWidth: 0 }}>
-                        {s.tool || s.kind === "tool_result" ? (
-                          <span>
-                            <strong>{s.tool || "tool"}</strong> —{" "}
-                            {s.kind === "tool_result" ? "返回" : "调用"}
+                        {s.tool ? (
+                          <span style={s.failed ? { color: "#c62828" } : undefined}>
+                            <strong>{s.tool}</strong> —{" "}
+                            {s.kind === "tool_result" ? "返回" : s.failed ? "失败" : "调用"}
+                            {s.feature_count ? (
+                              <span style={{ color: COLORS.textLight }}>
+                                {" "}· {s.feature_count} 要素
+                              </span>
+                            ) : null}
                           </span>
                         ) : (
                           <span style={{ color: COLORS.textLight }}>

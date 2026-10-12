@@ -74,6 +74,7 @@ class QueryRequest(BaseModel):
     """空间数据查询请求"""
     table: str = Field(description="表名: buildings | poi | roads")
     bbox: Optional[List[float]] = Field(default=None, description="[minLon, minLat, maxLon, maxLat]")
+    district: Optional[str] = Field(default=None, description="行政区精确过滤（如 '朝阳区'），按真实区界裁剪")
     category: Optional[str] = Field(default=None, description="类别过滤")
     limit: int = Field(default=200, ge=1, le=1000, description="最大返回条数")
 
@@ -82,6 +83,44 @@ class QueryResponse(BaseModel):
     """空间数据查询响应"""
     type: str = "FeatureCollection"
     features: List[Dict[str, Any]]
+
+
+class NearbyQueryRequest(BaseModel):
+    """附近查询请求（米制圆域，非矩形）"""
+    center: List[float] = Field(
+        description="中心点 [lon, lat]",
+        min_length=2,
+        max_length=2,
+        examples=[[116.458, 39.908]],
+    )
+    radius: float = Field(description="半径 (米)", gt=0, examples=[500])
+    table: str = Field(default="poi", description="表名: poi | buildings | roads")
+    category: Optional[str] = Field(default=None, description="类别过滤，如 bank | restaurant | cafe")
+    district: Optional[str] = Field(default=None, description="行政区精确过滤（如 '朝阳区'），按真实区界裁剪")
+    limit: int = Field(default=100, ge=1, le=1000, description="最大返回条数")
+
+
+class NearbyQueryResponse(BaseModel):
+    """附近查询响应：feature.properties.distance_m 为距中心点米数（按距离升序）"""
+    type: str = "FeatureCollection"
+    features: List[Dict[str, Any]]
+    center: List[float]
+    radius: float
+
+
+class GeocodeRequest(BaseModel):
+    """地理编码请求：地名 → 坐标"""
+    name: str = Field(description="地名，如 '国贸'、'朝阳区'、'望京SOHO'", min_length=1)
+    city: Optional[str] = Field(default=None, description="城市限定（百度层使用），默认北京市")
+
+
+class GeocodeResponse(BaseModel):
+    """地理编码响应：found=False 表示未收录（业务正常，非故障）"""
+    found: bool
+    source: Optional[str] = Field(default=None, description="解析层级: districts | poi | baidu")
+    matched_name: Optional[str] = Field(default=None, description="实际匹配到的名称")
+    geometry: Optional[Dict[str, Any]] = Field(default=None, description="WGS84 GeoJSON Point")
+    note: Optional[str] = Field(default=None, description="未收录说明或降级备注")
 
 
 class RouteRequest(BaseModel):

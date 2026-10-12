@@ -34,6 +34,10 @@ services:
     container_name: geoai-spatial
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-geoai}:${POSTGRES_PASSWORD:-geoai123}@postgis:5432/${POSTGRES_DB:-geoai}
+      # 地理编码 L3（百度优先 + 高德备援）；在 docker/.env 或 shell 环境里设置
+      BAIDU_MAP_AK: ${BAIDU_MAP_AK:-}
+      AMAP_KEY: ${AMAP_KEY:-}
+      GEOCODE_CITY: ${GEOCODE_CITY:-北京市}
     ports:
       - "8002:8002"
     depends_on:
@@ -54,6 +58,17 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
       LLM_MODEL: ${LLM_MODEL:-gpt-4o}
+      # 分阶段 LLM 覆盖（留空自动回退到上方全局配置，用于成本分级）
+      LLM_MODEL_INTENT: ${LLM_MODEL_INTENT:-}
+      OPENAI_BASE_URL_INTENT: ${OPENAI_BASE_URL_INTENT:-}
+      OPENAI_API_KEY_INTENT: ${OPENAI_API_KEY_INTENT:-}
+      LLM_INTENT_JSON_MODE: ${LLM_INTENT_JSON_MODE:-}
+      LLM_MODEL_PLAN: ${LLM_MODEL_PLAN:-}
+      OPENAI_BASE_URL_PLAN: ${OPENAI_BASE_URL_PLAN:-}
+      OPENAI_API_KEY_PLAN: ${OPENAI_API_KEY_PLAN:-}
+      LLM_MODEL_REPORT: ${LLM_MODEL_REPORT:-}
+      OPENAI_BASE_URL_REPORT: ${OPENAI_BASE_URL_REPORT:-}
+      OPENAI_API_KEY_REPORT: ${OPENAI_API_KEY_REPORT:-}
       SPATIAL_SERVICE_URL: http://spatial:8002
     ports:
       - "8001:8001"

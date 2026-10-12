@@ -19,25 +19,19 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .api.routes import router as agent_router
 from .api.history_routes import router as history_router
+from .llm_config import STAGES, get_llm_config
 
 
 def get_spatial_service_url() -> str:
     return os.getenv("SPATIAL_SERVICE_URL", "http://localhost:8002")
 
 
-def get_llm_config() -> dict:
-    return {
-        "api_key": os.getenv("OPENAI_API_KEY", ""),
-        "base_url": os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
-        "model": os.getenv("LLM_MODEL", "gpt-4o"),
-    }
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print(f"[agent] Spatial Service URL: {get_spatial_service_url()}")
-    llm = get_llm_config()
-    print(f"[agent] LLM: {llm['model']} @ {llm['base_url']}")
+    for stage in STAGES:
+        cfg = get_llm_config(stage)
+        print(f"[agent] LLM[{stage}]: {cfg['model']} @ {cfg['base_url']}")
     yield
 
 

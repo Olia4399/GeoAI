@@ -8,7 +8,11 @@ from ..models.schemas import (
     CostDistanceRequest,
     DistanceRequest,
     DistanceResponse,
+    GeocodeRequest,
+    GeocodeResponse,
     McdaRequest,
+    NearbyQueryRequest,
+    NearbyQueryResponse,
     QueryRequest,
     QueryResponse,
     RouteRequest,
@@ -20,8 +24,9 @@ from ..models.schemas import (
 from ..services.buffer import compute_buffer
 from ..services.cost_distance import compute_cost_distance
 from ..services.distance import compute_distance
+from ..services.geocode import geocode
 from ..services.mcda import compute_mcda
-from ..services.query import spatial_query
+from ..services.query import nearby_query, spatial_query
 from ..services.route import compute_route
 from ..services.overlay import compute_overlay
 from ..services.density import compute_density
@@ -61,6 +66,7 @@ def query_spatial(req: QueryRequest):
         result = spatial_query(
             table=req.table,
             bbox=req.bbox,
+            district=req.district,
             category=req.category,
             limit=req.limit,
         )
@@ -69,6 +75,34 @@ def query_spatial(req: QueryRequest):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Spatial query failed: {e}")
+
+
+@router.post("/nearby", response_model=NearbyQueryResponse, summary="附近查询（圆域）")
+def nearby_spatial(req: NearbyQueryRequest):
+    """查某点半径范围内的设施，按距离升序（米制圆域，非矩形 bbox）"""
+    try:
+        result = nearby_query(
+            center=req.center,
+            radius=req.radius,
+            table=req.table,
+            category=req.category,
+            district=req.district,
+            limit=req.limit,
+        )
+        return NearbyQueryResponse(**result)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Nearby query failed: {e}")
+
+
+@router.post("/geocode", response_model=GeocodeResponse, summary="地理编码（地名→WGS84坐标）")
+def geocode_address(req: GeocodeRequest):
+    """分级地理编码：L1 区级(districts) → L2 POI 锚点 → L3 百度(BD09转WGS84)。found=False 表示未收录"""
+    try:
+        return GeocodeResponse(**geocode(req.name, req.city))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Geocode failed: {e}")
 
 
 @router.post("/route", summary="路径规划")

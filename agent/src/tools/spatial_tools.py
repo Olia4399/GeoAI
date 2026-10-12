@@ -6,7 +6,7 @@
 
 import os
 import time
-from typing import Optional
+from typing import Literal, Optional
 
 import httpx
 from pydantic import BaseModel, Field
@@ -14,6 +14,28 @@ from pydantic import BaseModel, Field
 from .registry import Tool, tool_registry
 
 SPATIAL_URL = os.getenv("SPATIAL_SERVICE_URL", "http://localhost:8002")
+
+# 类别中文别名 → DB 英文枚举（工具层兜底：意图已归一化时通常不会走到这里）
+_CATEGORY_ALIASES = {
+    "银行": "bank", "银行网点": "bank", "atm": "bank",
+    "餐厅": "restaurant", "餐馆": "restaurant", "饭店": "restaurant",
+    "饭馆": "restaurant", "火锅": "restaurant", "美食": "restaurant",
+    "咖啡": "cafe", "咖啡店": "cafe", "咖啡馆": "cafe", "咖啡厅": "cafe",
+    "医院": "hospital", "诊所": "hospital",
+    "学校": "school", "大学": "school", "中学": "school", "小学": "school",
+    "药店": "pharmacy", "药房": "pharmacy",
+    "地铁站": "subway", "地铁": "subway",
+    "商场": "marketplace", "购物中心": "marketplace",
+    "超市": "retail", "商店": "retail",
+}
+
+
+def _normalize_category(category: Optional[str]) -> Optional[str]:
+    """类别归一化：中文别名/大小写 → DB 英文枚举；未知值原样返回（查询为空可接受）"""
+    if not category:
+        return None
+    key = category.strip()
+    return _CATEGORY_ALIASES.get(key.lower(), key.lower())
 
 
 # ============================================================
@@ -33,14 +55,29 @@ class DistanceAnalysisInput(BaseModel):
 class SpatialQueryInput(BaseModel):
     table: str = Field(description="表名: buildings | poi | roads | districts | population_grid")
     bbox: Optional[list[float]] = Field(default=None, description="[minLon, minLat, maxLon, maxLat]")
-    category: Optional[str] = Field(default=None, description="类别过滤，如 poi.category='coffee'")
+    district: Optional[str] = Field(default=None, description="行政区精确过滤（如 '朝阳区'），按真实区界裁剪而非矩形近似")
+    category: Optional[str] = Field(default=None, description="类别过滤（英文枚举，如 bank | restaurant | cafe）")
     limit: int = Field(default=50, ge=1, le=1000, description="最大返回条数")
 
 
+class NearbyQueryInput(BaseModel):
+    center: list[float] | str = Field(
+        description="中心点：地名（如 '国贸'、'三里屯'）或坐标 [lon, lat]。地名会走地理编码自动解析",
+    )
+    radius: float = Field(
+        description="查询半径（米）。必须与用户要求的范围一致：用户说'500米内'就用 500，禁止放大或自行猜测",
+        gt=0,
+    )
+    category: Optional[str] = Field(default=None, description="类别过滤（英文值）: bank | restaurant | cafe | hospital | school 等")
+    district: Optional[str] = Field(default=None, description="行政区精确过滤（如 '朝阳区'），按真实区界裁剪")
+    table: str = Field(default="poi", description="表名: poi（默认）| buildings | roads")
+    limit: int = Field(default=100, ge=1, le=1000, description="最大返回条数")
+
+
 class RouteAnalysisInput(BaseModel):
-    origin: list[float] = Field(description="起点 [lon, lat]", min_length=2, max_length=2)
-    destination: list[float] = Field(description="终点 [lon, lat]", min_length=2, max_length=2)
-    mode: str = Field(default="walk", description="walk | drive")
+    origin: list[float] | str = Field(description="起点：地名（如 '国贸'）或坐标 [lon, lat]；地名自动地理编码")
+    destination: list[float] | str = Field(description="终点：地名或坐标 [lon, lat]；地名自动地理编码")
+    mode: Literal["walk", "drive"] = Field(default="walk", description="出行方式: walk=步行 | drive=驾车")
 
 
 class OverlayAnalysisInput(BaseModel):
@@ -129,20 +166,18 @@ async def _buffer_analysis(geometry: dict, distance: float) -> dict:
 
 
 async def _geocode(name: str) -> dict | None:
-    """地名→坐标：从 POI 表模糊搜索（取最多 50 条）"""
+    """地名→WGS84坐标：调 spatial 分级地理编码（区级 → POI 锚点 → 百度）。
+
+    返回 {"geometry", "source", "matched_name"} 或 None（未收录/服务异常）。
+    """
     try:
-        result = await _post("query", {"table": "poi", "limit": 50})
-        features = result.get("features", [])
-        # 精确匹配优先
-        for f in features:
-            props = f.get("properties", {})
-            if props.get("name") and props["name"] == name:
-                return {"type": "Point", "coordinates": f["geometry"]["coordinates"]}
-        # 模糊匹配
-        for f in features:
-            props = f.get("properties", {})
-            if props.get("name") and name in props["name"]:
-                return {"type": "Point", "coordinates": f["geometry"]["coordinates"]}
+        result = await _post("geocode", {"name": name})
+        if result.get("found") and result.get("geometry"):
+            return {
+                "geometry": result["geometry"],
+                "source": result.get("source"),
+                "matched_name": result.get("matched_name"),
+            }
         return None
     except Exception:
         return None
@@ -166,33 +201,87 @@ async def _distance_analysis(source: str, target: str) -> dict:
     except Exception:
         pass
 
-    # 地名 → 坐标
+    # 地名 → 坐标（分级地理编码：区级 → POI 锚点 → 百度）
     if not src_geom:
-        src_geom = await _geocode(source)
+        hit = await _geocode(source)
+        src_geom = hit["geometry"] if hit else None
     if not tgt_geom:
-        tgt_geom = await _geocode(target)
+        hit = await _geocode(target)
+        tgt_geom = hit["geometry"] if hit else None
 
     if not src_geom or not tgt_geom:
-        # 缺坐标时返回提示，让 LLM 用自身知识提供坐标
+        missing = [n for n, g in ((source, src_geom), (target, tgt_geom)) if not g]
+        # 未收录（区级/POI/百度均无）→ 允许 LLM 用知识兜底，但要求标注来源
         return {
             "error": "geocode_failed",
-            "message": f"无法从数据库找到 '{source}' 或 '{target}' 的坐标。请直接提供坐标，例如 source='{{\"type\":\"Point\",\"coordinates\":[116.4,39.9]}}'",
-            "hint": "北京常见地标坐标: 天安门=[116.397,39.909], 国贸=[116.458,39.908], 朝阳公园=[116.478,39.945], 望京=[116.480,39.998], 三里屯=[116.454,39.932]",
+            "message": f"地名未收录（已尝试区级/POI/百度地理编码）: {missing}。可用你的知识给出近似坐标重试，但必须在最终结论中注明该坐标来自模型估算",
+            "format_example": "source={\"type\":\"Point\",\"coordinates\":[116.458,39.908]}",
+            "hint": "北京常见地标参考: 天安门=[116.397,39.909], 国贸=[116.458,39.908], 朝阳公园=[116.478,39.945], 望京=[116.480,39.998], 三里屯=[116.454,39.932]",
         }
 
     return await _post("distance", {"source": src_geom, "target": tgt_geom})
 
 
-async def _spatial_query(table: str, bbox=None, category=None, limit: int = 50) -> dict:
+async def _spatial_query(table: str, bbox=None, district=None, category=None, limit: int = 50) -> dict:
     return await _post("query", {
         "table": table,
         "bbox": bbox,
-        "category": category,
+        "district": district,
+        "category": _normalize_category(category),
         "limit": limit,
     })
 
 
-async def _route_analysis(origin: list[float], destination: list[float], mode: str = "walk") -> dict:
+async def _nearby_query(
+    center: list[float] | str,
+    radius: float,
+    category: Optional[str] = None,
+    district: Optional[str] = None,
+    table: str = "poi",
+    limit: int = 100,
+) -> dict:
+    # 支持传地名：走分级地理编码解析为坐标
+    if isinstance(center, str):
+        hit = await _geocode(center)
+        if not hit:
+            return {
+                "error": "geocode_failed",
+                "message": f"中心地名 '{center}' 未收录（已尝试区级/POI/百度/高德地理编码）。可改用坐标传入 center，例如 center=[116.458, 39.908]",
+                "hint": "北京常见地标参考: 国贸=[116.458,39.908], 三里屯=[116.454,39.932], 望京=[116.480,39.998]",
+            }
+        center = hit["geometry"]["coordinates"]
+    return await _post("nearby", {
+        "center": center,
+        "radius": radius,
+        "category": _normalize_category(category),
+        "district": district,
+        "table": table,
+        "limit": limit,
+    })
+
+
+async def _route_analysis(
+    origin: list[float] | str, destination: list[float] | str, mode: str = "walk"
+) -> dict:
+    # 地名 → 坐标（分级地理编码：区级 → POI 锚点 → 百度/高德）
+    if isinstance(origin, str):
+        hit = await _geocode(origin)
+        if not hit:
+            return {
+                "error": "geocode_failed",
+                "message": f"起点地名 '{origin}' 未收录（已尝试区级/POI/百度/高德地理编码）。可改用坐标传入，例如 origin=[116.458, 39.908]",
+                "hint": "北京常见地标参考: 国贸=[116.458,39.908], 三里屯=[116.454,39.932], 望京=[116.480,39.998]",
+            }
+        origin = hit["geometry"]["coordinates"]
+    if isinstance(destination, str):
+        hit = await _geocode(destination)
+        if not hit:
+            return {
+                "error": "geocode_failed",
+                "message": f"终点地名 '{destination}' 未收录（已尝试区级/POI/百度/高德地理编码）。可改用坐标传入，例如 destination=[116.454, 39.932]",
+                "hint": "北京常见地标参考: 国贸=[116.458,39.908], 三里屯=[116.454,39.932], 望京=[116.480,39.998]",
+            }
+        destination = hit["geometry"]["coordinates"]
     return await _post("route", {
         "origin": origin,
         "destination": destination,
@@ -227,7 +316,7 @@ async def _temporal_analysis(table: str = "poi", bbox=None, category=None) -> di
     return await _post("temporal", {
         "table": table,
         "bbox": bbox,
-        "category": category,
+        "category": _normalize_category(category),
     })
 
 
@@ -295,13 +384,19 @@ def register_spatial_tools():
         ),
         Tool(
             name="spatial_query",
-            description="从空间数据库查询矢量数据。可查询 buildings/poi/roads 表，支持 bbox 矩形过滤和类别过滤。返回 GeoJSON FeatureCollection。这是获取研究区域有什么的基础工具。",
+            description="从空间数据库查询矢量数据。可查询 buildings/poi/roads 表，支持 bbox 矩形过滤、district 行政区精确过滤（如 '朝阳区'）和类别过滤。返回 GeoJSON FeatureCollection。这是获取研究区域有什么的基础工具。",
             args_schema=SpatialQueryInput,
             handler=_spatial_query,
         ),
         Tool(
+            name="nearby_query",
+            description="查询某点半径范围内有哪些设施（米制圆域）。适用:『X米内/周边有哪些Y』『附近有什么』类问题。输入中心点（地名或坐标均可，地名自动地理编码）和半径(米)，可选 district 行政区过滤，返回范围内设施及各自距离(properties.distance_m，按距离升序)。请优先使用本工具，不要用 distance_analysis 逐个枚举。",
+            args_schema=NearbyQueryInput,
+            handler=_nearby_query,
+        ),
+        Tool(
             name="route_analysis",
-            description="计算两点之间的最短步行/驾车路径。输入起点和终点坐标 [lon,lat]，返回路径 GeoJSON LineString 和距离。适用: 通勤分析、可达性评估。",
+            description="计算两点之间的最短步行/驾车路径。输入起点和终点（地名或坐标 [lon,lat] 均可，地名自动地理编码）和出行方式，返回路径 GeoJSON LineString 和距离。适用: 通勤分析、可达性评估、'从A到B怎么走/多远'。",
             args_schema=RouteAnalysisInput,
             handler=_route_analysis,
         ),

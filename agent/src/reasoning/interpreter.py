@@ -4,13 +4,12 @@
 """
 
 import json
-import os
 import time
 
-from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from ..knowledge.vector_store import kb as knowledge_base
+from ..llm_config import build_llm_pair
 
 INTERPRETER_SYSTEM_PROMPT = """你是城市空间分析专家，根据空间分析的计算结果生成决策报告。
 
@@ -34,15 +33,10 @@ class ResultInterpreter:
     """LLM 结果解释器 (RAG 增强)"""
 
     def __init__(self):
-        # timeout=120s + 1 次自动重试：避免默认 600s 超时导致请求长时间挂起
-        self.llm = ChatOpenAI(
-            model=os.getenv("LLM_MODEL", "gpt-4o"),
-            api_key=os.getenv("OPENAI_API_KEY", ""),
-            base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
-            temperature=0.3,
-            timeout=120,
-            max_retries=1,
-        )
+        # timeout=120s + 1 次自动重试（报告输出较长，重试容忍度高）
+        # 主模型 = 阶段配置（智谱免费档）；备胎 = 全局配置（DeepSeek），过载/限流/超时自动降级
+        primary, fallback = build_llm_pair("report", temperature=0.3, timeout=120, max_retries=1)
+        self.llm = primary.with_fallbacks([fallback]) if fallback else primary
 
     @staticmethod
     def _build_knowledge_context(intent: dict) -> str:
@@ -87,7 +81,9 @@ class ResultInterpreter:
         rag_s = round(time.time() - t0, 3)
         print(f"[interpreter] RAG 检索耗时 {rag_s}s")
 
-        user_prompt = f"""
+        # 静态指令在前、动态内容在后：让请求前缀尽可能长且字节稳定，命中供应商前缀缓存
+        user_prompt = f"""请基于以下信息生成一份简洁的空间分析报告。{ "如果提供了参考知识库，请在报告中引用相关知识来源。" if kb_context else ""}
+
 分析任务: {json.dumps(intent, ensure_ascii=False, indent=2)}
 
 执行步骤:
@@ -97,8 +93,6 @@ class ResultInterpreter:
 {json.dumps(results, ensure_ascii=False, indent=2)}
 
 { kb_context }
-
-请基于以上信息生成一份简洁的空间分析报告。{ "如果提供了参考知识库，请在报告中引用相关知识来源。" if kb_context else ""}
 """
 
         if not results:

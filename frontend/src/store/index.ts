@@ -1,5 +1,11 @@
 import { create } from "zustand";
-import type { AgentError, AgentResponse, GeoJSONFeatureCollection, MapMode, DrawMode } from "../types";
+import type {
+  AgentError,
+  AgentResponse,
+  GeoJSONFeatureCollection,
+  MapMode,
+  DrawMode,
+} from "../types";
 import { agentApi } from "../services/agent";
 
 interface StreamProgress {
@@ -53,7 +59,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   drawGeometry: null,
   mapMode: "2d",
   drawMode: null,
-  layerVisibility: { poi: true, roads: true, buildings: true, districts: true, analysis: true, draw: true },
+  layerVisibility: {
+    poi: true,
+    roads: true,
+    buildings: true,
+    districts: true,
+    analysis: true,
+    draw: true,
+  },
   query: "",
   loading: false,
   agentResponse: null,
@@ -61,6 +74,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   streamProgress: null,
   streamAbort: null,
 
+  // 地图上下文
   setMapBounds: (bounds) => set({ mapBounds: bounds }),
   setSelectedGeometry: (geo) => set({ selectedGeometry: geo }),
   setDrawGeometry: (geo) => set({ drawGeometry: geo }),
@@ -69,18 +83,25 @@ export const useAppStore = create<AppState>((set, get) => ({
   setLayerVisibility: (id, visible) =>
     set((s) => ({ layerVisibility: { ...s.layerVisibility, [id]: visible } })),
   toggleLayerVisibility: (id) =>
-    set((s) => ({ layerVisibility: { ...s.layerVisibility, [id]: !s.layerVisibility[id] } })),
+    set((s) => ({
+      layerVisibility: { ...s.layerVisibility, [id]: !s.layerVisibility[id] },
+    })),
 
   submitQuery: (query: string) => {
-    // 取消之前的流
+    // 取消之前的流，即正在输出的这个流
     get().streamAbort?.abort();
 
     set({
       query,
-      loading: true,
+      loading: true, // loading代表这期间不能发送新消息
       error: null,
       agentResponse: null,
-      streamProgress: { phase: "intent", status: "running", steps: [], phaseElapsed: {} },
+      streamProgress: {
+        phase: "intent",
+        status: "running",
+        steps: [],
+        phaseElapsed: {},
+      },
     });
 
     const { mapBounds, selectedGeometry, drawGeometry } = get();
@@ -122,13 +143,35 @@ export const useAppStore = create<AppState>((set, get) => ({
                   total: data.total,
                   data: data.data,
                   elapsed_s: data.elapsed_s ?? data.data?.elapsed_s,
-                  step_elapsed_s: data.step_elapsed_s ?? data.data?.step_elapsed_s,
+                  step_elapsed_s:
+                    data.step_elapsed_s ?? data.data?.step_elapsed_s,
                 },
               ],
             },
           }));
+        } else if (type === "step_update") {
+          // 工具执行完成：原地更新对应步骤（调用 + 返回合并为一步，耗时=调用→完成）
+          set((s) => {
+            if (!s.streamProgress) return {};
+            return {
+              streamProgress: {
+                ...s.streamProgress,
+                steps: s.streamProgress.steps.map((st) =>
+                  st.index === data.index
+                    ? {
+                        ...st,
+                        data: data.data,
+                        elapsed_s: data.elapsed_s ?? st.elapsed_s,
+                        step_elapsed_s: data.step_elapsed_s ?? st.step_elapsed_s,
+                      }
+                    : st
+                ),
+              },
+            };
+          });
         } else if (type === "done") {
-          const streamedSteps = get().streamProgress?.steps.map((s) => s.data) || [];
+          const streamedSteps =
+            get().streamProgress?.steps.map((s) => s.data) || [];
           const response: AgentResponse = {
             intent: data.intent || {},
             steps: (data.steps?.length ? data.steps : streamedSteps) || [],
@@ -136,7 +179,11 @@ export const useAppStore = create<AppState>((set, get) => ({
             report: data.report || "",
             timings: data.timings,
           };
-          set({ agentResponse: response, loading: false, streamProgress: null });
+          set({
+            agentResponse: response,
+            loading: false,
+            streamProgress: null,
+          });
         } else if (type === "error") {
           // 后端 SSE error 事件：规范化 detail，透传后端分类的 title/hint
           set({
@@ -176,7 +223,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           }
           return {};
         });
-      }
+      },
     );
 
     set({ streamAbort: controller });
@@ -189,7 +236,11 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   clearResults: () =>
     set({
-      agentResponse: null, error: null, query: "",
-      loading: false, drawGeometry: null, streamProgress: null,
+      agentResponse: null,
+      error: null,
+      query: "",
+      loading: false,
+      drawGeometry: null,
+      streamProgress: null,
     }),
 }));

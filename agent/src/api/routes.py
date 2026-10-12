@@ -57,7 +57,7 @@ def _classify_error(exc: Exception) -> dict:
         return {
             "error_type": "llm",
             "title": "大模型认证失败",
-            "hint": "检查 agent/.env 的 OPENAI_API_KEY 是否有效",
+            "hint": "检查 agent/.env 的 OPENAI_API_KEY（分阶段配置时为 OPENAI_API_KEY_INTENT/_PLAN/_REPORT）是否有效",
         }
     if "timeout" in msg.lower() or "Timeout" in name:
         return {
@@ -205,6 +205,16 @@ async def agent_query_stream(req: AgentQueryRequest):
                         "type": "step",
                         "index": ev["index"],
                         "total": ev["index"],  # 流式过程中 total 尚未可知，用当前序号
+                        "data": step,
+                        "elapsed_s": ev.get("elapsed_s"),
+                        "step_elapsed_s": step.get("step_elapsed_s"),
+                    })
+                elif ev.get("event") == "step_update":
+                    # 工具完成：原地更新对应步骤（合并"调用 + 返回"为一步）
+                    step = ev["step"]
+                    yield _sse({
+                        "type": "step_update",
+                        "index": ev["index"],
                         "data": step,
                         "elapsed_s": ev.get("elapsed_s"),
                         "step_elapsed_s": step.get("step_elapsed_s"),
